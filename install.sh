@@ -136,6 +136,7 @@ cat > "$unit_dir/$CELLS_UNIT-dash.service" <<EOF
 Description=Cells dashboard (OS for agents)
 
 [Service]
+Environment=CELLS_CONFIG=$CELLS_CONFIG
 ExecStart=$APP/bin/cell dashboard
 Restart=on-failure
 RestartSec=2

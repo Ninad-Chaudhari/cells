@@ -42,7 +42,7 @@ up)
     touch "$AUTH"; chmod 600 "$AUTH"
     xauth -q -f "$AUTH" add ":$n" . "$(mcookie)"
     systemd-run --user --quiet --collect --unit "$CELLS_UNIT-screen-$name" -p MemoryMax=1G -p TasksMax=128 \
-        --setenv=XAUTHORITY="$AUTH" --setenv=DISPLAY=":$n" --setenv=CELLS_WM="$CELLS_WM" \
+        --setenv=XAUTHORITY="$AUTH" --setenv=DISPLAY=":$n" --setenv=CELLS_WM="$CELLS_WM" --setenv=CELLS_CONFIG="$CELLS_CONFIG" \
         "$CELLS_APP/bin/cell-screen-run" "$n" "$size"
     for _ in $(seq 100); do [ -e "/tmp/.X11-unix/X$n" ] && break; sleep 0.1; done
     if [ ! -e "/tmp/.X11-unix/X$n" ]; then

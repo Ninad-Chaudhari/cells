@@ -192,7 +192,7 @@ up)
     echo "$runtime" > "$cell/state/runtime"
     echo starting > "$cell/state/status"
 
-    systemd-run --user --quiet --collect --unit "$CELLS_UNIT-agent-$name" \
+    systemd-run --user --quiet --collect --unit "$CELLS_UNIT-agent-$name" --setenv=CELLS_CONFIG="$CELLS_CONFIG" \
         -p MemoryMax="$CELLS_MEMORY_MAX" -p MemoryHigh="$(memory_high)" -p TasksMax=1024 \
         "$CELLS_APP/bin/cell-agent-run" "$name"
     echo "$name started on :$n ($runtime)"
