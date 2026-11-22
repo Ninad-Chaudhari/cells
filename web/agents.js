@@ -161,6 +161,7 @@ const Focus = {
     $("jump").classList.add("hidden");
     $("more").classList.add("hidden");
     $("fname").textContent = name;
+    $("stage").style.backgroundImage = tiles.get(name)?.url ? `url("${tiles.get(name).url}")` : "";
     $("fusage").innerHTML = "";
     this.paintUsage();
     this.control = false; this.autoPaused = false; this.drawControl();
@@ -172,6 +173,7 @@ const Focus = {
   async close() {
     if (this.control) await this.setControl(false);
     this.name = null;
+    $("stage").style.backgroundImage = "";
     this.stream();
   },
 
