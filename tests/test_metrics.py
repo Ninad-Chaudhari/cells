@@ -79,11 +79,19 @@ class TokenTest(unittest.TestCase):
     def setUp(self):
         self.path = TMP / f"{self.id()}.jsonl"
 
-    def test_claude_counts_each_message_once_even_when_repeated_per_block(self):
-        usage_ = {"input_tokens": 10, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 1000, "output_tokens": 50}
-        block = lambda t: event(type="assistant", message={"id": "msg_1", "content": [{"type": "text", "text": t}], "usage": usage_})
-        self.path.write_text(block("a") + block("b") + event(type="assistant", message={"id": "msg_2", "content": [], "usage": {"input_tokens": 5, "output_tokens": 7}}))
-        self.assertEqual(usage.totals(self.path), {"input": 1115, "output": 57, "cached": 1000, "reasoning": 0})
+    def test_claude_adds_up_each_turns_own_report(self):
+        streaming = event(type="assistant", message={"id": "msg_1", "content": [], "usage": {"input_tokens": 2, "output_tokens": 28}})
+        turn1 = event(type="result", total_cost_usd=0.053, usage={"input_tokens": 10, "cache_creation_input_tokens": 8564,
+                                                                   "cache_read_input_tokens": 69409, "output_tokens": 1196})
+        turn2 = event(type="result", total_cost_usd=0.062, usage={"input_tokens": 4, "cache_creation_input_tokens": 590,
+                                                                   "cache_read_input_tokens": 20417, "output_tokens": 457,
+                                                                   "output_tokens_details": {"thinking_tokens": 48}})
+        self.path.write_text(streaming + turn1 + streaming + turn2)
+        self.assertEqual(usage.totals(self.path), {"input": 98994, "output": 1653, "cached": 89826, "reasoning": 48})
+
+    def test_a_runtime_result_without_usage_counts_nothing(self):
+        self.path.write_text(event(type="result", result="done", is_error=False))
+        self.assertEqual(usage.totals(self.path), {"input": 0, "output": 0, "cached": 0, "reasoning": 0})
 
     def test_codex_adds_up_each_turn(self):
         turn = event(type="turn.completed", usage={"input_tokens": 200, "cached_input_tokens": 150, "output_tokens": 20, "reasoning_output_tokens": 8})
