@@ -8,7 +8,7 @@ import unittest
 
 from support import ROOT, make_cell, reset
 
-from server import agents
+from server import inbox
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
 HOOK = ROOT / "bin" / "cell-inbox-hook"
@@ -33,7 +33,7 @@ class MessageTest(unittest.TestCase):
         return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out.strip() else None
 
     def test_message_with_image_is_delivered_once(self):
-        self.assertEqual(agents.queue_message("writer", "Use this logo", [image()]), (True, ""))
+        self.assertEqual(inbox.queue_message("writer", "Use this logo", [image()]), (True, ""))
         first = self.hook()
         self.assertIn("New message from Sam", first)
         self.assertIn("Use this logo", first)
@@ -43,22 +43,22 @@ class MessageTest(unittest.TestCase):
         self.assertIsNone(self.hook())
 
     def test_one_bad_image_rejects_the_message_and_writes_nothing(self):
-        ok, err = agents.queue_message("writer", "two pictures", [image(), image(kind="image/svg+xml")])
+        ok, err = inbox.queue_message("writer", "two pictures", [image(), image(kind="image/svg+xml")])
         self.assertFalse(ok)
         self.assertIn("PNG", err)
         self.assertEqual(files_in(self.state), [])
 
     def test_oversized_image_is_refused(self):
-        ok, _ = agents.queue_message("writer", "", [image(b"\0" * (8 * 1024 * 1024 + 1))])
+        ok, _ = inbox.queue_message("writer", "", [image(b"\0" * (8 * 1024 * 1024 + 1))])
         self.assertFalse(ok)
         self.assertEqual(files_in(self.state), [])
 
     def test_ended_agent_takes_no_messages(self):
         (self.state / "status").write_text("finished")
-        self.assertEqual(agents.queue_message("writer", "hello?"), (False, "This agent has ended."))
+        self.assertEqual(inbox.queue_message("writer", "hello?"), (False, "This agent has ended."))
 
     def test_empty_message_is_refused(self):
-        self.assertFalse(agents.queue_message("writer", "   ", [])[0])
+        self.assertFalse(inbox.queue_message("writer", "   ", [])[0])
 
 
 if __name__ == "__main__":

@@ -35,11 +35,11 @@ class FeedTest(unittest.TestCase):
 
     def test_final_answer_is_marked_when_it_repeats_the_last_message(self):
         self.append(say("All done: 3 stories") + event(type="result", result="All done: 3 stories"))
-        self.assertEqual(logs.feed(self.path)[1][-1], ["done", "All done: 3 stories", {"echo": True}])
+        self.assertEqual(logs.feed(self.path)[1][-1], ["done", "All done: 3 stories", {"echo": True, "error": False}])
 
     def test_final_answer_is_not_marked_when_it_differs(self):
         self.append(say("Working on it") + event(type="result", result="Here is the table"))
-        self.assertEqual(logs.feed(self.path)[1][-1], ["done", "Here is the table", {"echo": False}])
+        self.assertEqual(logs.feed(self.path)[1][-1], ["done", "Here is the table", {"echo": False, "error": False}])
 
     def test_a_replaced_stream_starts_over(self):
         self.append(say("old agent") + say("old agent again"))

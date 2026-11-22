@@ -12,15 +12,15 @@ os.environ["CELLS_HOME"] = str(TMP / "home")
 os.environ["CELLS_NAME"] = "testhost"
 sys.path.insert(0, str(ROOT))
 
-from server import config, screens  # noqa: E402
+from server import cells, config  # noqa: E402
 
-screens.X11 = TMP / "x11"
+cells.X11 = TMP / "x11"
 
 
 def reset():
-    for d in (config.HOME, screens.X11):
+    for d in (config.HOME, cells.X11):
         shutil.rmtree(d, ignore_errors=True)
-    screens.X11.mkdir(parents=True)
+    cells.X11.mkdir(parents=True)
 
 
 def make_cell(name, display=201, status="running", task="Do the thing"):
@@ -31,7 +31,7 @@ def make_cell(name, display=201, status="running", task="Do the thing"):
     (state / "status").write_text(status)
     (state / "task.txt").write_text(task)
     (state / "started").write_text("1700000000")
-    (screens.X11 / f"X{display}").touch()
+    (cells.X11 / f"X{display}").touch()
     return state
 
 

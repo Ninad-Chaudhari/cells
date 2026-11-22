@@ -9,9 +9,10 @@ from unittest import mock
 
 from PIL import Image
 
+import support
 from support import make_cell, reset
 
-from server import screens
+from server import frames
 from server.routes import Handler
 
 
@@ -38,10 +39,10 @@ class HttpTest(unittest.TestCase):
     def setUp(self):
         reset()
         self.screen = Screen()
-        patch = mock.patch.object(screens.ImageGrab, "grab", self.screen.grab)
+        patch = mock.patch.object(frames.ImageGrab, "grab", self.screen.grab)
         patch.start()
         self.addCleanup(patch.stop)
-        screens.FRAMES.frames.clear()
+        frames.FRAMES.frames.clear()
 
     def get(self, path, etag=None):
         c = http.client.HTTPConnection(*self.server.server_address, timeout=5)
@@ -64,10 +65,10 @@ class HttpTest(unittest.TestCase):
         status, etag, body = self.get("/shot/web?w=640")
         self.assertEqual(status, 200)
         self.assertEqual(Image.open(io.BytesIO(body)).size, (640, 400))
-        screens.FRAMES.frames.clear()
+        frames.FRAMES.frames.clear()
         self.assertEqual(self.get("/shot/web?w=640", etag)[0], 304)
         self.screen.color = (200, 30, 30)
-        screens.FRAMES.frames.clear()
+        frames.FRAMES.frames.clear()
         status, new_etag, _ = self.get("/shot/web?w=640", etag)
         self.assertEqual(status, 200)
         self.assertNotEqual(new_etag, etag)
@@ -90,7 +91,7 @@ class HttpTest(unittest.TestCase):
 
     def test_a_cell_without_a_live_screen_is_not_listed(self):
         make_cell("ghost", display=233)
-        (screens.X11 / "X233").unlink()
+        (support.cells.X11 / "X233").unlink()
         self.assertEqual(json.loads(self.get("/api/state")[2])["screens"], [])
 
     def test_log_asks_the_client_to_start_over_when_the_agent_was_replaced(self):
