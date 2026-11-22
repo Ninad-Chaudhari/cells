@@ -8,9 +8,12 @@ import time
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import agents, history, knowledge, logs
+from . import agents, history, inbox, knowledge, logs, runtimes
+from .cells import cell_dir, display_of, list_cells
 from .config import FILE_RE, MAX, NAME, WEB
-from .screens import FRAMES, LIVE_QUALITY, PREVIEW_QUALITY, cell_dir, display_of, list_screens, send_input
+from .frames import FRAMES, LIVE_QUALITY, PREVIEW_QUALITY
+from .metrics import METRICS
+from .xinput import send_input
 
 STATIC_RE = re.compile(r"^[a-z0-9_-]+\.(css|js|svg|png|ico)$")
 INLINE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"}
@@ -85,11 +88,12 @@ class Handler(BaseHTTPRequestHandler):
             ctype = mimetypes.guess_type(parts[1])[0] or "application/octet-stream"
             return self.send_bytes(200, (WEB / parts[1]).read_bytes(), ctype, "no-cache")
         if path in ("/api/state", "/api/screens"):
-            screens = json.dumps(list_screens())
-            etag = '"' + hashlib.blake2b(screens.encode(), digest_size=8).hexdigest() + '"'
+            screens = json.dumps(list_cells())
+            rts = json.dumps(runtimes.status())
+            etag = '"' + hashlib.blake2b((screens + rts).encode(), digest_size=8).hexdigest() + '"'
             if self.headers.get("If-None-Match") == etag:
                 return self.not_modified(etag)
-            body = f'{{"now": {int(time.time())}, "host": {json.dumps(NAME)}, "max": {MAX}, "screens": {screens}}}'
+            body = f'{{"now": {int(time.time())}, "host": {json.dumps(NAME)}, "max": {MAX}, "runtimes": {rts}, "screens": {screens}}}'
             return self.send_bytes(200, body.encode(), "application/json", "no-cache", etag)
         if len(parts) == 3 and parts[:2] == ["api", "log"]:
             d = cell_dir(parts[2])
@@ -109,6 +113,8 @@ class Handler(BaseHTTPRequestHandler):
             rel = "/".join(parts[2:])
             p = d / "state" / "inbox" / rel if d and FILE_RE.match(rel) else None
             return self.image(p)
+        if path == "/api/metrics":
+            return self.json(METRICS.snapshot())
         if parts == ["api", "history"]:
             return self.json_polled({"runs": history.list_runs()})
         if len(parts) == 4 and parts[:2] == ["api", "history"] and parts[3] == "log":
@@ -202,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def route_post(self, parts, body):
         if parts == ["api", "agents"]:
-            ok, msg = agents.start(body.get("name"), body.get("task"), body.get("images") or [])
+            ok, msg = agents.start(body.get("name"), body.get("task"), body.get("images") or [], body.get("runtime"))
             return self.json({"ok": ok, "message": msg}, 200 if ok else 409)
         if parts == ["api", "history", "clear"]:
             return self.json({"ok": True, "deleted": history.clear()})
@@ -218,7 +224,7 @@ class Handler(BaseHTTPRequestHandler):
             send_input(display_of(name), body)
             return self.json({"ok": True})
         if action == "message":
-            ok, err = agents.queue_message(name, str(body.get("text", "")), body.get("images") or [])
+            ok, err = inbox.queue_message(name, str(body.get("text", "")), body.get("images") or [])
             return self.json({"ok": ok, "error": err}, 200 if ok else 409)
         handlers = {
             "pause": lambda: agents.set_paused(name, True),

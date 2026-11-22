@@ -14,6 +14,8 @@ CONTEXTS = KNOWLEDGE / "contexts"
 SOCK = RUN / "dash.sock"
 WEB = APP / "web"
 CELL = APP / "bin" / "cell"
+SECRETS = Path(os.environ.get("CELLS_SECRETS") or HOME / "secrets")
+LOCAL = os.environ.get("CELLS_LOCAL", "")
 
 UNIT = os.environ.get("CELLS_UNIT", "cells")
 NAME = os.environ.get("CELLS_NAME") or socket.gethostname().split(".")[0]

@@ -1,33 +1,36 @@
-"""Controlling agents: start, stop, pause, resume, answer help, and queue messages."""
-import base64
-import binascii
-import json
+"""Controlling agents: start, stop, pause, resume and answer a help request."""
 import os
 import signal
 import subprocess
 import threading
-import time
 from pathlib import Path
 
-from .config import CELL, IMAGE_TYPES, MAX_IMAGE_BYTES, MAX_IMAGES, NAME_RE, UNIT, read
-from .screens import STOPPING, cell_dir
+from . import inbox, runtimes
+from .cells import STOPPING, cell_dir
+from .config import CELL, NAME_RE, UNIT, read
+
+AGENT_PROCESSES = {"claude", "codex"}
 
 
-def start(name, task, images=()):
+def start(name, task, images=(), runtime=None):
     """Start an agent on a task. Images go to its inbox, so it reads them as soon as it starts working."""
     name, task = (name or "").strip(), (task or "").strip()
+    runtime = runtime or runtimes.DEFAULT
     if not NAME_RE.match(name):
         return False, "Name: lowercase letters, digits and dashes, up to 31 characters."
     if not task:
         return False, "Give the agent a task."
-    _, err = decode_images(images)
+    problem = runtimes.problem(runtime)
+    if problem:
+        return False, problem
+    _, err = inbox.decode_images(images)
     if err:
         return False, err
-    r = subprocess.run([str(CELL), "up", name, task[:20000]], capture_output=True, text=True, timeout=180)
+    r = subprocess.run([str(CELL), "up", name, task[:20000], "--runtime", runtime], capture_output=True, text=True, timeout=180)
     if r.returncode != 0:
         return False, (r.stderr or r.stdout).strip()
     if images:
-        queue_message(name, "Images for your task.", images)
+        inbox.queue_message(name, "Images for your task.", images)
     return True, r.stdout.strip()
 
 
@@ -46,18 +49,22 @@ def stop(name):
     return True
 
 
-def _claude_pids(name):
+def _agent_pids(name):
+    """The agent runtime's own processes (not its browser), so you can pause it and still use the screen."""
     cg = subprocess.run(["systemctl", "--user", "show", "-p", "ControlGroup", "--value", f"{UNIT}-agent-{name}"],
                         capture_output=True, text=True, timeout=10).stdout.strip()
     if not cg:
         return []
-    return [int(p) for p in read(Path("/sys/fs/cgroup" + cg) / "cgroup.procs", "").split()
-            if read(Path(f"/proc/{p}/comm")) == "claude"]
+    procs = Path("/sys/fs/cgroup" + cg)
+    pids = []
+    for f in [procs / "cgroup.procs", *procs.glob("**/cgroup.procs")]:
+        pids += [int(p) for p in read(f, "").split() if read(Path(f"/proc/{p}/comm")) in AGENT_PROCESSES]
+    return sorted(set(pids))
 
 
 def set_paused(name, paused):
     d = cell_dir(name)
-    pids = _claude_pids(name)
+    pids = _agent_pids(name)
     if not d or not pids:
         return False
     for pid in pids:
@@ -83,48 +90,3 @@ def resolve_help(name, note):
     if (state / "paused").exists():
         set_paused(name, False)
     return True
-
-
-def decode_images(images):
-    """([(ext, bytes)], error) for images sent as {type, data(base64)}."""
-    images = list(images or [])
-    if len(images) > MAX_IMAGES:
-        return [], f"Up to {MAX_IMAGES} images per message."
-    decoded = []
-    for img in images:
-        ext = IMAGE_TYPES.get(str(img.get("type", "")))
-        if not ext:
-            return [], "Images must be PNG, JPEG, GIF or WebP."
-        try:
-            data = base64.b64decode(str(img.get("data", "")), validate=True)
-        except (binascii.Error, ValueError):
-            return [], "An image could not be read."
-        if len(data) > MAX_IMAGE_BYTES:
-            return [], "Each image must be under 8 MB."
-        decoded.append((ext, data))
-    return decoded, ""
-
-
-def queue_message(name, text, images=()):
-    """Write a message (and its images) to the agent's inbox atomically. Nothing is written if any image is bad."""
-    d = cell_dir(name)
-    text = (text or "").strip()[:8000]
-    if not d or read(d / "state" / "status") not in ("starting", "running", "idle"):
-        return False, "This agent has ended."
-    decoded, err = decode_images(images)
-    if err:
-        return False, err
-    if not (text or decoded):
-        return False, "Write a message or attach an image."
-    inbox = d / "state" / "inbox"
-    (inbox / "files").mkdir(parents=True, exist_ok=True)
-    stamp = time.time_ns()
-    saved = []
-    for i, (ext, data) in enumerate(decoded):
-        rel = f"files/{stamp}-{i}.{ext}"
-        (inbox / rel).write_bytes(data)
-        saved.append(rel)
-    tmp = inbox / f".{stamp}.tmp"
-    tmp.write_text(json.dumps({"text": text, "images": saved, "at": int(time.time())}))
-    os.rename(tmp, inbox / f"{stamp}.json")
-    return True, ""

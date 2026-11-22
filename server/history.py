@@ -3,7 +3,7 @@ import shutil
 
 from . import logs
 from .config import ARCHIVE_RE, HISTORY, read
-from .screens import last_result
+from .cells import last_result
 
 
 def _dir(archive_id):
@@ -19,6 +19,7 @@ def _meta(d):
         "id": d.name,
         "name": d.name.split("-", 2)[2],
         "status": read(d / "status") or "stopped",
+        "runtime": read(d / "runtime") or "claude",
         "task": read(d / "task.txt") or "",
         "started": int(started) if started and started.isdigit() else None,
         "ended": int(ended) if ended and ended.isdigit() else None,
@@ -46,7 +47,7 @@ def list_runs():
         if not hit or hit[0] != mtime:
             hit = _metas[d.name] = (mtime, _meta(d))
         m = hit[1]
-        runs.append({k: m[k] for k in ("id", "name", "status", "started", "ended")} | {"task": m["task"][:300]})
+        runs.append({k: m[k] for k in ("id", "name", "status", "runtime", "started", "ended")} | {"task": m["task"][:300]})
     for gone in set(_metas) - live:
         _metas.pop(gone, None)
     return sorted(runs, key=lambda r: r["id"], reverse=True)

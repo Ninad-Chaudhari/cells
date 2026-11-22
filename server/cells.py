@@ -1,20 +1,17 @@
-"""Cells and their screens: listing, screenshots and synthetic input."""
-import hashlib
-import io
+"""The cells on this host and what each is doing, read from $CELLS_HOME/screens."""
 import json
-import os
-import subprocess
 import threading
-import time
+from collections import OrderedDict
 from pathlib import Path
 
-from PIL import Image, ImageGrab
-
-from .config import KEYS_RE, NAME_RE, SCREENS, read
+from .config import NAME_RE, SCREENS, read
 
 X11 = Path("/tmp/.X11-unix")
 STOPPING = set()
-_results = {}
+
+_results = OrderedDict()
+_results_lock = threading.Lock()
+RESULTS_CACHED = 64
 
 
 def cell_dir(name):
@@ -36,9 +33,10 @@ def last_result(stream):
     except OSError:
         return None
     key = (st.st_mtime_ns, st.st_size)
-    cached = _results.get(str(stream))
-    if cached and cached[0] == key:
-        return cached[1]
+    with _results_lock:
+        hit = _results.get(str(stream))
+        if hit and hit[0] == key:
+            return hit[1]
     result = None
     with open(stream, "rb") as fh:
         fh.seek(max(0, st.st_size - 400_000))
@@ -53,7 +51,11 @@ def last_result(stream):
         if ev.get("type") == "result":
             result = ev.get("result") or ev.get("subtype")
             break
-    _results[str(stream)] = (key, result)
+    with _results_lock:
+        _results[str(stream)] = (key, result)
+        _results.move_to_end(str(stream))
+        while len(_results) > RESULTS_CACHED:
+            _results.popitem(last=False)
     return result
 
 
@@ -68,7 +70,7 @@ def pending_messages(state):
     return out
 
 
-def list_screens():
+def list_cells():
     out = []
     for f in sorted(SCREENS.glob("*/display")):
         n = read(f)
@@ -90,6 +92,7 @@ def list_screens():
             "display": f":{n}",
             "started": int(started) if started else None,
             "agent": state.is_dir(),
+            "runtime": read(state / "runtime") or "claude",
             "status": status,
             "task": read(state / "task.txt"),
             "paused": (state / "paused").exists(),
@@ -99,71 +102,3 @@ def list_screens():
             "stopping": d.name in STOPPING,
         })
     return out
-
-
-PREVIEW_QUALITY = 68
-LIVE_QUALITY = 82
-
-
-class Frames:
-    """Captures each screen at most once per tick, however many viewers ask, and skips unchanged frames."""
-
-    def __init__(self, max_age=0.08):
-        self.max_age = max_age
-        self.lock = threading.Lock()
-        self.locks = {}
-        self.frames = {}
-        self.jpegs = {}
-
-    def frame(self, display):
-        with self.lock:
-            lock = self.locks.setdefault(display, threading.Lock())
-        with lock:
-            hit = self.frames.get(display)
-            if hit and time.monotonic() - hit[0] < self.max_age:
-                return hit
-            im = ImageGrab.grab(xdisplay=display).convert("RGB")
-            hit = (time.monotonic(), hashlib.blake2b(im.tobytes(), digest_size=8).hexdigest(), im)
-            self.frames[display] = hit
-            return hit
-
-    def jpeg(self, display, width=0, quality=LIVE_QUALITY):
-        """(frame digest, JPEG) of the current screen; width 0 means native, others round up to 160 px steps."""
-        _, digest, im = self.frame(display)
-        width = min(im.width, max(320, -(-width // 160) * 160)) if width > 0 else im.width
-        key = (display, width, quality)
-        cached = self.jpegs.get(key)
-        if cached and cached[0] == digest:
-            return cached
-        if width < im.width:
-            im = im.resize((width, round(im.height * width / im.width)), Image.LANCZOS, reducing_gap=2.0)
-        buf = io.BytesIO()
-        im.save(buf, "JPEG", quality=quality)
-        self.jpegs[key] = (digest, buf.getvalue())
-        return self.jpegs[key]
-
-
-FRAMES = Frames()
-
-
-def xdotool(display, *args):
-    return subprocess.run(["xdotool", *args], env={**os.environ, "DISPLAY": display},
-                          capture_output=True, text=True, timeout=10)
-
-
-def send_input(display, ev):
-    kind = ev.get("type")
-    if kind in ("click", "scroll"):
-        w, h = (int(v) for v in xdotool(display, "getdisplaygeometry").stdout.split())
-        x = round(min(max(float(ev["x"]), 0.0), 1.0) * (w - 1))
-        y = round(min(max(float(ev["y"]), 0.0), 1.0) * (h - 1))
-        button = str(int(ev.get("button", 1))) if kind == "click" else ("4" if float(ev.get("dy", 0)) < 0 else "5")
-        xdotool(display, "mousemove", "--sync", str(x), str(y), "click", button)
-    elif kind == "key":
-        keys = str(ev.get("keys", ""))
-        if KEYS_RE.match(keys):
-            xdotool(display, "key", "--", keys)
-    elif kind == "text":
-        text = str(ev.get("text", ""))[:2000]
-        if text:
-            xdotool(display, "type", "--delay", "15", "--", text)
