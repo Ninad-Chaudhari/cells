@@ -33,6 +33,11 @@ const ICONS = {
   split: '<rect x="3" y="4.5" width="18" height="15" rx="2.2"/><path d="M14 4.5v15"/>',
   chat: '<path d="M5 18.5V7a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 19 7v6.5a2.5 2.5 0 0 1-2.5 2.5H8.5z"/>',
   chev: '<path d="M9.5 6l6 6-6 6"/>',
+  gauge: '<path d="M4.5 17.5a8.5 8.5 0 1 1 15 0"/><path d="M12 13.5l3.5-4"/><circle cx="12" cy="13.5" r="1.2"/>',
+  cpu: '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3"/>',
+  memory: '<rect x="3.5" y="7" width="17" height="10" rx="2"/><path d="M7.5 7v10M12 7v10M16.5 7v10"/>',
+  disk: '<ellipse cx="12" cy="6.5" rx="7.5" ry="3"/><path d="M4.5 6.5v11c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-11"/><path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/>',
+  agents: '<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M15.5 6a3 3 0 0 1 0 5.5M17.5 19a5.5 5.5 0 0 0-2.5-4.6"/>',
 };
 const icon = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ""}</svg>`;
 const $ = id => document.getElementById(id);
@@ -71,9 +76,17 @@ function ago(t) {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 }
-const bytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+function bytes(n) {
+  if (n == null) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${i === 0 || n >= 100 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+}
+const pct = n => n == null ? "—" : `${n < 10 ? n.toFixed(1) : Math.round(n)}%`;
+const count = n => !n ? "0" : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k` : String(n);
 
-const PALETTE = ["#8aa8ff", "#a78bfa", "#34d399", "#fbbf24", "#f472b6", "#60a5fa", "#fb923c", "#2dd4bf"];
+const PALETTE = ["#0a84ff", "#5e5ce6", "#30b158", "#ff9f0a", "#ff375f", "#bf5af2", "#40c8e0", "#ac8e68"];
 function who(author) {
   const a = String(author || "");
   if (a.startsWith("cell ")) return { name: a.slice(5), kind: "agent" };

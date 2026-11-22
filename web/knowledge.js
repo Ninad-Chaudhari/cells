@@ -43,7 +43,7 @@ const Knowledge = {
       html = (this.commits || []).map(c => {
         const files = c.files.filter(f => f.path.startsWith("contexts/"));
         const add = files.reduce((a, f) => a + (f.adds || 0), 0), del = files.reduce((a, f) => a + (f.dels || 0), 0);
-        return `<div class="item ${this.on("commit", c.hash)}" data-commit="${c.hash}">${avatar(c.author)}<div class="body"><div class="t">${esc(c.subject)}</div><div class="m">${esc(who(c.author).name)} · ${ago(c.at)} · <span class="plus">+${add}</span> <span class="minus">−${del}</span></div></div></div>`;
+        return `<div class="item ${this.on("commit", c.hash)}" data-commit="${c.hash}">${avatar(c.author)}<div class="body"><div class="t">${esc(c.subject)}</div><div class="m">${esc(who(c.author).name)} · ${ago(c.at)} · <span class="plus-n">+${add}</span> <span class="minus">−${del}</span></div></div></div>`;
       }).join("") || `<div class="feed-empty">No changes yet</div>`;
     }
     box.innerHTML = html;
@@ -108,7 +108,7 @@ const Knowledge = {
     let c;
     try { c = await api.get(`/api/kb/commit?hash=${encodeURIComponent(hash)}`); }
     catch (e) { $("kbmain").innerHTML = `<div class="card doc"><div class="feed-empty">Change not found.</div></div>`; return; }
-    const files = c.files.map(f => `<div class="file">${icon(f.path.endsWith(".db") ? "sparkle" : "file")}<span class="p">${esc(f.path.replace(/^contexts\//, ""))}${f.path.endsWith(".db") ? ` <span style="color:var(--faint)">· search index</span>` : ""}</span>${f.adds == null ? `<span style="color:var(--faint)">binary</span>` : `<span class="plus">+${f.adds}</span><span class="minus">−${f.dels}</span>`}</div>`).join("");
+    const files = c.files.map(f => `<div class="file">${icon(f.path.endsWith(".db") ? "sparkle" : "file")}<span class="p">${esc(f.path.replace(/^contexts\//, ""))}${f.path.endsWith(".db") ? ` <span style="color:var(--faint)">· search index</span>` : ""}</span>${f.adds == null ? `<span style="color:var(--faint)">binary</span>` : `<span class="plus-n">+${f.adds}</span><span class="minus">−${f.dels}</span>`}</div>`).join("");
     $("kbmain").innerHTML = `<div class="card doc">
       <div class="metarow"><span class="who">${avatar(c.author)}<b style="color:var(--text)">${esc(who(c.author).name)}</b></span><span>${ago(c.at)}</span><span class="hash">${c.hash}</span></div>
       <h1 class="title" style="font-size:20px">${esc(c.subject)}</h1>

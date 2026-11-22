@@ -39,9 +39,13 @@ class Feed {
     this.pending = [];
     this.group = null;
     this.lastSay = null;
+    this.at = null;
   }
 
-  add([kind, text, extra]) {
+  /* index: the entry's position in the whole stream, kept on the element it starts so older pages
+     can be fetched again after trim() drops them. */
+  add([kind, text, extra], index = null) {
+    this.at = index;
     if (this.el.firstElementChild?.classList.contains("feed-empty")) this.el.textContent = "";
     if (kind === "tool") return this.tool(text, extra);
     if (kind === "result" || kind === "error") return this.pending.length ? this.output(kind, text) : this.orphan(kind, text);
@@ -51,23 +55,36 @@ class Feed {
     if (kind === "you") return this.you(text, extra || {});
     if (kind === "done") {
       if (extra?.echo && say) say.remove();
-      return this.append(`<div class="result"><div class="rh">${icon("check")}Done</div><div class="prose">${md(text)}</div></div>`);
+      return this.append(extra?.error
+        ? `<div class="result failed"><div class="rh">${icon("x")}Stopped with an error</div><div class="prose">${md(text)}</div></div>`
+        : `<div class="result"><div class="rh">${icon("check")}Done</div><div class="prose">${md(text)}</div></div>`);
     }
     if (kind === "say") this.lastSay = this.append(`<div class="agent-msg prose">${md(text)}</div>`);
   }
 
   /* Older entries go above what is shown; they are rendered on their own so live state is untouched. */
-  prepend(entries) {
+  prepend(entries, start = null) {
     const box = document.createElement("div");
     const older = new Feed(box, { agentName: this.agentName, fileUrl: this.fileUrl });
-    for (const e of entries) older.add(e);
+    entries.forEach((e, i) => older.add(e, start == null ? null : start + i));
     older.closeGroup();
     if (!box.firstElementChild?.classList.contains("feed-empty")) this.el.prepend(...box.children);
   }
 
+  /* Keep at most max elements: drop the oldest. Returns the stream index the feed now starts at, or null. */
+  trim(max) {
+    const extra = this.el.children.length - max;
+    if (extra <= 0) return null;
+    for (let i = 0; i < extra; i++) this.el.firstElementChild.remove();
+    const first = this.el.firstElementChild?.dataset.i;
+    return first == null ? null : Number(first);
+  }
+
   append(html) {
     this.el.insertAdjacentHTML("beforeend", html);
-    return this.el.lastElementChild;
+    const el = this.el.lastElementChild;
+    if (this.at != null) el.dataset.i = this.at;
+    return el;
   }
 
   openGroup() {

@@ -41,7 +41,7 @@ const History = {
       const x = runState(r.status);
       html += `<div class="item ${this.sel === r.id ? "on" : ""}" data-id="${esc(r.id)}">${avatar(`cell ${r.name}`)}<div class="body">
         <div class="t">${esc(r.name)}</div>
-        <div class="m"><span class="dot ${x.dot}"></span>${esc(x.label)}${r.started && r.ended ? ` · ${dur(r.ended - r.started)}` : ""}${r.ended ? ` · ${ago(r.ended)}` : ""}</div>
+        <div class="m"><span class="dot ${x.dot}"></span>${esc(x.label)} · ${esc(runtimeLabel(r.runtime))}${r.started && r.ended ? ` · ${dur(r.ended - r.started)}` : ""}${r.ended ? ` · ${ago(r.ended)}` : ""}</div>
         <div class="d">${esc(plain(r.task))}</div></div></div>`;
     }
     box.innerHTML = html || `<div class="feed-empty">${this.runs.length ? "No matches" : "Stopped agents are archived here."}</div>`;
@@ -72,7 +72,7 @@ const History = {
     const url = rel => `/api/history/${encodeURIComponent(id)}/home/${rel.split("/").map(encodeURIComponent).join("/")}`;
     const files = r.files.map(f => `<a class="file" href="${url(f.path)}" target="_blank" rel="noopener">${icon("file")}<span class="p">${esc(f.path)}</span><span style="color:var(--faint)">${bytes(f.size)}</span></a>`).join("");
     $("hmain").innerHTML = `<div class="card doc">
-      <div class="run-head">${avatar(`cell ${r.name}`)}<h1>${esc(r.name)}</h1><span class="status"><span class="dot ${x.dot}"></span>${esc(x.label)}</span>
+      <div class="run-head">${avatar(`cell ${r.name}`)}<h1>${esc(r.name)}</h1><span class="status"><span class="dot ${x.dot}"></span>${esc(x.label)}</span><span class="chip-rt ${esc(r.runtime)}">${esc(runtimeLabel(r.runtime))}</span>
         <span class="grow"></span><button class="btn danger sm" id="hdel">${icon("trash")}<span id="hdelLabel">Delete</span></button></div>
       <div class="metarow" style="margin-top:10px">${r.started ? `<span>${new Date(r.started * 1000).toLocaleString()}</span>` : ""}${r.started && r.ended ? `<span>ran ${dur(r.ended - r.started)}</span>` : ""}<span class="hash">${esc(r.id)}</span></div>
       <div class="section-t">Task</div><div class="prose">${md(r.task || "—")}</div>
@@ -81,13 +81,13 @@ const History = {
       <div class="section-t">Chat</div><div class="run-feed"><div class="more ${r.start ? "" : "hidden"}" id="hmore"><button class="btn sm">Load earlier</button></div><div class="feed" id="hfeed"></div></div>
     </div>`;
     const feed = new Feed($("hfeed"), { agentName: r.name, fileUrl: rel => `/api/history/${encodeURIComponent(id)}/file/${rel}` });
-    for (const e of r.entries) feed.add(e);
+    r.entries.forEach((e, i) => feed.add(e, r.start + i));
     feed.closeGroup();
     let start = r.start;
     $("hmore").querySelector("button").onclick = async () => {
       const page = await api.get(`/api/history/${encodeURIComponent(id)}/log?before=${start}`);
       if (this.sel !== id) return;
-      feed.prepend(page.entries);
+      feed.prepend(page.entries, page.start);
       start = page.start;
       $("hmore").classList.toggle("hidden", !start);
     };

@@ -5,9 +5,7 @@
 <title>Cells</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Cells, the OS for AI agents: run many agents in sandboxed Linux desktops and watch, steer and chat with them.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<meta name="color-scheme" content="dark light">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -17,6 +15,7 @@
     <button data-route="#/agents" data-view="agents"><span data-icon="grid"></span><span class="lbl">Agents</span><span class="n" id="nAgents">0</span></button>
     <button data-route="#/history" data-view="history"><span data-icon="clock"></span><span class="lbl">History</span><span class="n" id="nHistory">0</span></button>
     <button data-route="#/knowledge" data-view="kb"><span data-icon="book"></span><span class="lbl">Knowledge</span><span class="n" id="nKb">0</span></button>
+    <button data-route="#/metrics" data-view="metrics"><span data-icon="gauge"></span><span class="lbl">Metrics</span></button>
   </nav>
   <span class="grow"></span>
   <div class="stats" id="stats"></div>
@@ -46,6 +45,7 @@
         <textarea id="lTask" rows="1" placeholder="Describe a task. It gets its own screen, browser and shell."></textarea>
         <div class="pillbar">
           <button type="button" class="plus" id="lAttach" data-tip="Add images" data-tip-pos="up"><span data-icon="plus"></span></button>
+          <div class="seg inline" id="lRuntime"></div>
           <label class="namechip" data-tip="Agent name" data-tip-pos="up"><span data-icon="cursor"></span><input id="lName" class="mono" spellcheck="false" maxlength="31"></label>
           <span class="grow"></span>
           <span class="err" id="lErr"></span>
@@ -54,6 +54,7 @@
         <input type="file" id="lFile" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
         <div class="dropzone hidden" id="lDrop">Drop images to attach</div>
       </form>
+      <p class="rtnote" id="lRtNote"></p>
       <div class="ideas" id="ideas"></div>
     </div>
   </section>
@@ -63,7 +64,9 @@
       <button class="iconbtn" id="back" data-tip="All agents · Esc"><span data-icon="back"></span></button>
       <h1 id="fname"></h1>
       <span class="status" id="fstatus"></span>
+      <span class="chip-rt" id="fruntime"></span>
       <span class="fmeta mono" id="fmeta"></span>
+      <span class="usage" id="fusage"></span>
       <span class="grow"></span>
       <div class="seg mini" id="layoutSeg">
         <button data-layout="screen" data-tip="Screen only" data-tip-pos="left"><span data-icon="monitor"></span></button>
@@ -126,6 +129,12 @@
     </div>
   </section>
 
+  <section id="metricsView" class="hidden">
+    <div class="glance" id="glance"></div>
+    <div class="mtable" id="mtable"></div>
+    <p class="footnote">CPU is the share of one core over the last few seconds (100% = one core busy). Memory is the working set of the agent, its browser and its screen: what the kernel counts against the agent, minus file cache it can drop. Disk is measured once a minute. Tokens are what each runtime reports.</p>
+  </section>
+
   <section id="historyView" class="hidden">
     <div class="split2">
       <aside class="sidelist">
@@ -158,6 +167,7 @@
 <script src="/static/agents.js"></script>
 <script src="/static/chat.js"></script>
 <script src="/static/launch.js"></script>
+<script src="/static/metrics.js"></script>
 <script src="/static/history.js"></script>
 <script src="/static/knowledge.js"></script>
 <script src="/static/app.js"></script>

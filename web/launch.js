@@ -17,12 +17,32 @@ function nameFor(task, taken) {
 }
 
 const Launch = {
-  att: null, named: false, busy: false,
+  att: null, named: false, busy: false, runtime: store.get("cells.runtime") || "", rtKey: "",
 
   open() {
     $("lErr").textContent = "";
+    this.renderRuntimes();
     if (!this.named) this.suggest();
     setTimeout(() => $("lTask").focus(), 30);
+  },
+
+  /* One choice per runtime the host knows; one that can't start yet says why and can't be launched. */
+  renderRuntimes() {
+    const rts = state.runtimes;
+    if (!rts.length) return;
+    if (!rts.some(r => r.id === this.runtime)) this.runtime = (rts.find(r => r.default && !r.problem) || rts.find(r => !r.problem) || rts[0]).id;
+    const key = JSON.stringify([rts, this.runtime]);
+    if (key === this.rtKey) return;
+    this.rtKey = key;
+    $("lRuntime").innerHTML = rts.map(r => `<button type="button" data-rt="${r.id}" class="${r.id === this.runtime ? "on" : ""}"${r.problem ? ` data-tip="${esc(r.problem)}" data-tip-pos="up"` : ""}>${esc(r.label)}</button>`).join("");
+    $("lRuntime").querySelectorAll("button").forEach(b => b.onclick = () => {
+      this.runtime = b.dataset.rt;
+      store.set("cells.runtime", this.runtime);
+      this.renderRuntimes();
+    });
+    const problem = rts.find(r => r.id === this.runtime)?.problem || "";
+    $("lRtNote").textContent = problem;
+    $("lStart").disabled = !!problem;
   },
 
   suggest() {
@@ -38,7 +58,7 @@ const Launch = {
     $("lErr").textContent = "Starting…";
     try {
       const images = await this.att.encode();
-      const r = await api.post("/api/agents", { name, task, images });
+      const r = await api.post("/api/agents", { name, task, images, runtime: this.runtime });
       if (!r.ok) { $("lErr").textContent = r.message || r.error || "Couldn't start it"; return; }
       $("lErr").textContent = "";
       $("lTask").value = "";
@@ -50,7 +70,9 @@ const Launch = {
       go(`#/agent/${encodeURIComponent(name)}`);
     } finally {
       this.busy = false;
-      $("lStart").disabled = false;
+      this.rtKey = "";
+      this.renderRuntimes();
+      if (!$("lRtNote").textContent) $("lStart").disabled = false;
     }
   },
 

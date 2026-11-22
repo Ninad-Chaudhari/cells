@@ -1,5 +1,5 @@
 /* Routing, refresh loops and keyboard shortcuts. */
-const VIEWS = { agents: "agentsView", new: "launchView", agent: "focusView", history: "historyView", kb: "kbView" };
+const VIEWS = { agents: "agentsView", new: "launchView", agent: "focusView", history: "historyView", kb: "kbView", metrics: "metricsView" };
 
 function go(hash) {
   if (location.hash !== hash) location.hash = hash;
@@ -10,6 +10,7 @@ function parseRoute() {
   const seg = (location.hash || "#/agents").replace(/^#\/?/, "").split("/");
   const rest = n => decodeURIComponent(seg.slice(n).join("/"));
   if (seg[0] === "new") return { view: "new" };
+  if (seg[0] === "metrics") return { view: "metrics" };
   if (seg[0] === "agent" && seg[1]) return { view: "agent", name: rest(1) };
   if (seg[0] === "history") return { view: "history", id: rest(1) };
   if (seg[0] === "knowledge" && seg[1] === "doc") return { view: "kb", doc: rest(2) };
@@ -29,6 +30,7 @@ async function render() {
   if (r.view === "agent") Focus.open(r.name);
   if (r.view === "new") Launch.open();
   if (r.view === "agents") { renderGrid(); refreshShots(); }
+  if (["agents", "agent", "metrics"].includes(r.view)) { Metrics.paint(); Metrics.load(); }
   if (r.view === "history") {
     History.renderList();
     if (r.id) History.show(r.id); else History.overview();
@@ -90,5 +92,6 @@ function tick() {
   setInterval(refreshShots, 1500);
   setInterval(() => Focus.refreshLog(), 1500);
   setInterval(() => { History.load(); Knowledge.load(); }, 10000);
+  setInterval(() => { if (["agents", "agent", "metrics"].includes(state.route.view)) Metrics.load(); }, 3000);
   setInterval(tick, 1000);
 })();

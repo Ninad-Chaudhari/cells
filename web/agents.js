@@ -1,5 +1,8 @@
 /* Agents: header stats, the grid of live screens, the focused agent view, and the New agent dialog. */
-const state = { screens: [], host: "", route: { view: "agents" } };
+const state = { screens: [], runtimes: [], max: 0, host: "", route: { view: "agents" } };
+const RUNTIME_LABELS = { claude: "Claude Code", codex: "Codex" };
+const runtimeLabel = id => state.runtimes.find(r => r.id === id)?.label || RUNTIME_LABELS[id] || id;
+const LIVE_FEED_NODES = 400;
 
 function agentState(s) {
   if (!s.agent) return { key: "screen", label: "Screen", dot: "" };
@@ -24,6 +27,9 @@ async function refreshScreens() {
     if (data) {
       clock.offset = data.now - Date.now() / 1000;
       state.screens = data.screens;
+      state.runtimes = data.runtimes || [];
+      state.max = data.max;
+      if (state.route.view === "new") Launch.renderRuntimes();
       if (state.host !== data.host) { state.host = data.host; $("hostLabel").textContent = `OS for agents · ${data.host}`; }
       renderHeader();
       if (state.route.view === "agents") renderGrid();
@@ -82,7 +88,6 @@ function updateTile(s) {
   t.el.classList.toggle("is-stopping", !!s.stopping);
   t.dot.className = `dot ${x.dot}`;
   t.st.textContent = x.label;
-  t.tr.title = `Screen ${s.display}`;
   let ic = "", text = s.task || (s.agent ? "" : "Plain screen");
   if (s.help) { ic = "alert"; text = s.help.message; }
   else if (ended(s)) { ic = x.key === "failed" ? "x" : "check"; text = plain(s.result) || x.label; }
@@ -156,6 +161,8 @@ const Focus = {
     $("jump").classList.add("hidden");
     $("more").classList.add("hidden");
     $("fname").textContent = name;
+    $("fusage").innerHTML = "";
+    this.paintUsage();
     this.control = false; this.autoPaused = false; this.drawControl();
     showSideTab("activity");
     Chat.reset();
@@ -183,6 +190,9 @@ const Focus = {
     this.current = s || {};
     if (!s) { $("fstatus").innerHTML = `<span class="dot"></span>Gone`; Chat.setEnabled(false, "This agent is gone"); return; }
     $("fstatus").innerHTML = statusHTML(s);
+    $("fruntime").textContent = s.agent ? runtimeLabel(s.runtime) : "";
+    $("fruntime").className = `chip-rt ${s.runtime || ""}`;
+    $("fruntime").classList.toggle("hidden", !s.agent);
     $("fmeta").textContent = s.started ? `${dur(now() - s.started)} · ${s.display}` : s.display;
     $("fhelp").classList.toggle("hidden", !s.help);
     if (s.help) $("fhelpmsg").textContent = s.help.message;
@@ -195,6 +205,13 @@ const Focus = {
     $("tresultWrap").classList.toggle("hidden", !s.result);
     if ($("tresult").dataset.v !== (s.result || "")) { $("tresult").dataset.v = s.result || ""; $("tresult").innerHTML = md(s.result || ""); }
     Chat.update(s);
+  },
+
+  paintUsage() {
+    const c = Metrics.byName[this.name];
+    $("fusage").innerHTML = !c ? "" :
+      `<span title="Share of one core">${icon("cpu")}${pct(c.cpu)}</span><span title="Working set${c.mem_max ? `, limit ${bytes(c.mem_max)}` : ""}">${icon("memory")}${bytes(c.mem)}</span>` +
+      (c.disk ? `<span title="Home and logs">${icon("disk")}${bytes((c.disk.home || 0) + (c.disk.state || 0))}</span>` : "");
   },
 
   drawControl() {
@@ -236,12 +253,17 @@ const Focus = {
         this.logStart = data.start;
         $("more").classList.toggle("hidden", !data.start);
       }
+      const first = fresh ? data.start : this.logNext;
       this.logNext = data.next;
       if (!data.entries.length) return;
       const pane = $("activityPane");
       const atBottom = fresh || pane.scrollHeight - pane.scrollTop - pane.clientHeight < 80;
-      for (const e of data.entries) this.feed.add(e);
-      if (atBottom) pane.scrollTop = pane.scrollHeight; else $("jump").classList.remove("hidden");
+      data.entries.forEach((e, i) => this.feed.add(e, first + i));
+      if (atBottom) {
+        const cut = this.feed.trim(LIVE_FEED_NODES);
+        if (cut != null) { this.logStart = cut; $("more").classList.remove("hidden"); }
+        pane.scrollTop = pane.scrollHeight;
+      } else $("jump").classList.remove("hidden");
     } catch (e) {
     } finally {
       this.logBusy = false;
@@ -253,7 +275,7 @@ const Focus = {
     const data = await api.get(`/api/log/${encodeURIComponent(name)}?before=${this.logStart}`);
     if (name !== this.name) return;
     const pane = $("activityPane"), height = pane.scrollHeight;
-    this.feed.prepend(data.entries);
+    this.feed.prepend(data.entries, data.start);
     pane.scrollTop += pane.scrollHeight - height;
     this.logStart = data.start;
     $("more").classList.toggle("hidden", !data.start);
