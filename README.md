@@ -5,13 +5,13 @@
 # Cells
 
 **The OS for AI agents.**<br>
-Run a fleet of Claude Code agents, each in its own sandboxed Linux desktop with a screen, a browser and a shell.<br>
+Run a fleet of Claude Code and Codex agents, each in its own sandboxed Linux desktop with a screen, a browser and a shell.<br>
 Watch them all live, take over any screen, chat with them, and let them share what they learn.
 
 [![tests](https://github.com/Ninad-Chaudhari/cells/actions/workflows/test.yml/badge.svg)](https://github.com/Ninad-Chaudhari/cells/actions/workflows/test.yml)
 ![license](https://img.shields.io/badge/license-MIT-8aa8ff)
 ![platform](https://img.shields.io/badge/runs%20on-Linux-34d399)
-![agents](https://img.shields.io/badge/agents-Claude%20Code-a78bfa)
+![agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex-a78bfa)
 
 <img src="docs/media/demo.gif" alt="Several agents browsing in their own sandboxed desktops, watched from the Cells dashboard" width="100%">
 
@@ -23,6 +23,7 @@ Computer-use agents need a computer, and running more than one on the same deskt
 
 ## Features
 
+- **Claude Code or Codex.** Pick the runtime per agent. Both get the same desktop, browser, chat, help requests and knowledge base.
 - **Isolated cells.** Each agent runs in a [bubblewrap](https://github.com/containers/bubblewrap) sandbox with its own X screen, browser profile, home directory and process tree. Agents can't see each other's screens, files or tabs. Stopping a cell kills everything it started.
 - **Live wall of screens.** Previews are sized to the tile and only sent when the screen changes. The agent you open streams at full resolution.
 - **Take over.** Click and type on any agent's screen. The agent pauses until you hand it back.
@@ -30,13 +31,14 @@ Computer-use agents need a computer, and running more than one on the same deskt
 - **Human in the loop.** Agents ask for help when they hit a login, a CAPTCHA or a decision, and their cell lights up.
 - **Shared knowledge base.** A git-backed folder of Markdown that every agent reads and writes. Every change is a commit you can browse and diff.
 - **History.** Every run is archived with its chat, result and files. Search it, replay it, delete one run or all of them.
+- **Metrics.** Host CPU, memory and disk, and what each agent uses (CPU, memory, disk, processes, tokens), read from the kernel's cgroup counters, not estimated. Each agent has a memory cap and a process cap.
 - **Small.** A standard-library Python server and plain JavaScript. No Docker, no database, no build step, no root at runtime.
 
 | Live screens | One agent: screen and chat |
 |---|---|
 | ![Grid of agent screens](docs/media/grid.png) | ![An agent's screen beside its chat](docs/media/agent.png) |
-| **Launch from the browser** | **Shared knowledge** |
-| ![Launcher](docs/media/launch.png) | ![Knowledge base with commits](docs/media/knowledge.png) |
+| **Launch from the browser** | **Metrics** |
+| ![Launcher](docs/media/launch.png) | ![Per-agent CPU, memory and disk](docs/media/metrics.png) |
 
 ## Quick start
 
@@ -44,10 +46,11 @@ On a Linux machine with systemd (Ubuntu 22.04+, Debian 12+, Fedora 39+) and Node
 
 ```bash
 git clone https://github.com/Ninad-Chaudhari/cells.git && cd cells
-./install.sh                 # --with-chromium if Chrome isn't installed
+./install.sh                 # add --with-codex for Codex, --with-chromium if Chrome isn't installed
 claude setup-token           # then paste the token into:
-cell auth
+cell auth claude             # and for Codex: cell auth codex (an OpenAI API key)
 cell up research "Summarize the top stories on Hacker News"
+cell up coder "Find three open-source alternatives to Notion" --runtime codex
 ```
 
 The installer checks your packages (and offers to install what's missing), puts its Node pieces under `~/cells/opt`, starts the dashboard as a user service and runs `cell doctor`. Run it again any time to update.
@@ -79,19 +82,21 @@ flowchart LR
   end
 ```
 
-- `cell up` starts an Xvfb screen and a window manager, then launches Claude Code inside bubblewrap as a systemd user unit. The sandbox sees the host read-only, its own home, its own screen, and nothing of yours. Its browser is driven through [Playwright MCP](https://github.com/microsoft/playwright-mcp).
-- Your messages go into the cell's inbox. A Claude Code hook hands them to the agent after its current step, or they start a new turn if it has finished.
+- `cell up` starts an Xvfb screen and a window manager, then the agent's runtime (Claude Code or Codex) inside bubblewrap, as systemd user units with memory and process caps. The sandbox sees the host read-only, its own home, its own screen, and nothing of yours. Its browser is driven through [Playwright MCP](https://github.com/microsoft/playwright-mcp).
+- A small supervisor (`agent/`) runs the turns. One driver per runtime writes that runtime's config and speaks its protocol: a long-lived `claude -p` stream for Claude Code, one `codex exec --json` per turn (resuming the same thread) for Codex.
+- Your messages go into the cell's inbox. A PostToolUse hook (both runtimes have one) hands them to the agent after its current step, or they start a new turn if it has finished.
 - `cell down` stops the unit (every process the agent started goes with it), archives the run to `~/cells/history` and frees the screen.
 
 ## Commands
 
 | | |
 |---|---|
-| `cell up NAME "TASK"` | start an agent |
+| `cell up NAME "TASK" [--runtime codex]` | start an agent |
 | `cell say NAME "MESSAGE" [IMAGE...]` | message it, with images |
 | `cell ls` | list running agents |
 | `cell down NAME` | stop it and archive the run |
 | `cell history [NAME]` · `history rm ID` · `history clear --yes` | look at or delete past runs |
+| `cell auth claude` · `cell auth codex` | save a credential (typed hidden) |
 | `cell doctor` | check the install |
 
 ## Configuration
@@ -102,6 +107,8 @@ flowchart LR
 |---|---|---|
 | `CELLS_MAX` | `20` | agents working at once |
 | `CELLS_OWNER` | `the operator` | how agents address you |
+| `CELLS_RUNTIME` | `claude` | runtime for new agents: `claude` or `codex` |
+| `CELLS_CODEX_MODEL` | Codex's default | model for Codex agents |
 | `CELLS_SCREEN_SIZE` | `1280x800` | each agent's screen |
 | `CELLS_MEMORY_MAX` | `8G` | memory cap per agent |
 | `CELLS_CHROME_PROFILE` | empty | copy a Chrome profile into each cell so agents start signed in |
@@ -112,7 +119,9 @@ flowchart LR
 
 ## Security notes
 
-Agents run with Claude Code's permission prompts off, so the sandbox is what keeps them in their lane:
+**Credentials.** `cell auth` reads the credential without echoing it and saves it in `~/cells/secrets`, readable only by you (cells refuses a file others can read). No sandbox can see that folder. A credential reaches only the agents of its own runtime, through the process environment (readable only by you), never command-line arguments (which any user on the host can list). Codex agents run with in-memory credential storage, so Codex never writes the key into the agent's home. An agent can still read its own runtime's credential from its own environment; that is inherent to running the CLI.
+
+Agents run with their runtime's permission prompts off, so the sandbox is what keeps them in their lane:
 
 - The host filesystem is read-only. Home directories, `~/cells` (other agents' chats, your token, the dashboard socket) and every other cell's home are hidden; a cell sees only its own home.
 - Each cell has its own PID namespace and X authority cookie, so it can't signal other processes or open other cells' screens.
