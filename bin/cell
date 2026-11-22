@@ -55,16 +55,6 @@ status_of() {
     cat "$SCREENS/$1/state/status" 2>/dev/null || true
 }
 
-init_knowledge() {
-    [ -d "$KNOWLEDGE/.git" ] && return 0
-    mkdir -p "$KNOWLEDGE/contexts/general"
-    chmod 700 "$KNOWLEDGE"
-    git -C "$KNOWLEDGE" init -q -b main
-    printf "lancedb/\nconfig.json\nconfig.toml\n" > "$KNOWLEDGE/.gitignore"
-    git -C "$KNOWLEDGE" add -A
-    git -C "$KNOWLEDGE" -c user.name=cells -c user.email=cells@localhost commit -q -m "knowledge: start shared library"
-}
-
 archive() {
     local name="$1" cell="$SCREENS/$1" dest
     [ -d "$cell/state" ] || return 0
@@ -123,6 +113,8 @@ doctor() {
     for b in bwrap Xvfb xdotool xauth mcookie python3 git systemd-run; do
         check "$b" "run ./install.sh" command -v "$b"
     done
+    check "git 2.38+ (merges agents' knowledge edits)" "upgrade git" \
+        bash -c 'printf "2.38\n%s\n" "$(git --version | cut -d" " -f3)" | sort -V -C'
     check "python3 Pillow" "sudo apt install python3-pil" python3 -c "import PIL.ImageGrab"
     check "node ($CELLS_NODE)" "install Node.js 18+ (https://nodejs.org)" test -x "$CELLS_NODE"
     check "browser ($CELLS_CHROME_BIN)" "install Google Chrome or run ./install.sh --with-chromium" test -x "$CELLS_CHROME_BIN"
@@ -168,7 +160,6 @@ up)
     if systemctl --user is-active --quiet "$CELLS_UNIT-agent-$name"; then echo "$name is already running" >&2; exit 1; fi
     if [ -e "$SCREENS/$name" ]; then echo "$name exists; stop it first with: cell down $name" >&2; exit 1; fi
     if [ "$(running_agents)" -ge "$CELLS_MAX" ]; then echo "$CELLS_MAX agents already running (CELLS_MAX)" >&2; exit 1; fi
-    init_knowledge
 
     "$CELLS_APP/bin/cell-screen" up "$name" >/dev/null
     cell="$SCREENS/$name"
@@ -191,6 +182,7 @@ up)
     printf '%s\n' "$task" > "$cell/state/task.txt"
     echo "$runtime" > "$cell/state/runtime"
     echo starting > "$cell/state/status"
+    "$CELLS_APP/bin/cell-kb-commit" "$name"
 
     systemd-run --user --quiet --collect --unit "$CELLS_UNIT-agent-$name" --setenv=CELLS_CONFIG="$CELLS_CONFIG" \
         -p MemoryMax="$CELLS_MEMORY_MAX" -p MemoryHigh="$(memory_high)" -p TasksMax=1024 \
@@ -229,6 +221,7 @@ down)
         systemctl --user stop "$CELLS_UNIT-agent-$name" || true
         echo "$final" > "$SCREENS/$name/state/status"
     fi
+    if [ -d "$SCREENS/$name/state" ]; then "$CELLS_APP/bin/cell-kb-commit" "$name" || true; fi
     archive "$name"
     home="$(readlink -f "$SCREENS/$name/home" 2>/dev/null || true)"
     "$CELLS_APP/bin/cell-screen" down "$name"

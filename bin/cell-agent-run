@@ -57,7 +57,7 @@ esac
 
 args+=(
     --bind "$state" "$inner/state"
-    --bind "$KNOWLEDGE" "$inner/knowledge"
+    --bind "$cell/knowledge" "$inner/knowledge"
     --ro-bind "$CELLS_APP/bin/need-help" "$inner/bin/need-help"
     --ro-bind "$CELLS_APP/bin/cell-chrome" "$inner/bin/cell-chrome"
     --ro-bind "$CELLS_APP/bin/cell-inbox-hook" "$inner/bin/cell-inbox-hook"

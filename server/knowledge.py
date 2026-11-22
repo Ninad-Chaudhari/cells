@@ -1,15 +1,18 @@
 """Read-only views of the shared knowledge base: a git repo of Markdown docs."""
+import os
 import sqlite3
 import subprocess
 
-from .config import CONTEXTS, HASH_RE, KNOWLEDGE
+from .config import CONTEXTS, HASH_RE, KNOWLEDGE, KNOWLEDGE_GIT
 
 LOG_FMT = "--format=\x01%h\x02%an\x02%at\x02%s"
+GIT = ["git", "--no-optional-locks", f"--git-dir={KNOWLEDGE_GIT}", f"--work-tree={KNOWLEDGE}"]
 
 
 def git(*args, limit=400_000):
     try:
-        r = subprocess.run(["git", "-C", str(KNOWLEDGE), *args], capture_output=True, text=True, timeout=15)
+        r = subprocess.run([*GIT, *args], capture_output=True, text=True, timeout=15,
+                           env={**os.environ, "GIT_INDEX_FILE": f"{KNOWLEDGE}.index"})
     except (OSError, subprocess.TimeoutExpired):
         return ""
     return r.stdout[:limit]

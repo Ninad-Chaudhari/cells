@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from . import cells, usage
-from .config import HISTORY, HOME, KNOWLEDGE, LOCAL, SCREENS, UNIT, read
+from .config import HISTORY, HOME, KNOWLEDGE, KNOWLEDGE_GIT, LOCAL, SCREENS, UNIT, read
 
 CGROUP = Path("/sys/fs/cgroup")
 PROC = Path("/proc")
@@ -187,7 +187,8 @@ class Metrics:
     def snapshot(self):
         with self.lock:
             now = time.monotonic()
-            out_cells, keep, folders = [], set(), {"history": HISTORY, "knowledge": KNOWLEDGE}
+            out_cells, keep, folders = [], set(), {"history": HISTORY, "knowledge": KNOWLEDGE,
+                                                      "knowledge.git": KNOWLEDGE_GIT}
             for c in cells.list_cells():
                 name = c["name"]
                 agent, groups = self.units.of_cell(name)
@@ -221,7 +222,8 @@ class Metrics:
                 home, state = sizes.get(f"{c['name']}.home"), sizes.get(f"{c['name']}.state")
                 c["disk"] = None if home is None and state is None else {"home": home, "state": state}
             host["cells_mem"] = sum(c["mem"] or 0 for c in out_cells)
-            host["storage"] = {"history": sizes.get("history"), "knowledge": sizes.get("knowledge")}
+            kb = [sizes[k] for k in ("knowledge", "knowledge.git") if sizes.get(k) is not None]
+            host["storage"] = {"history": sizes.get("history"), "knowledge": sum(kb) if kb else None}
             host["disk_measured"] = bool(sizes)
             return {"host": host, "cells": out_cells}
 

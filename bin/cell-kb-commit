@@ -1,18 +1,84 @@
 #!/usr/bin/env bash
-# Commits whatever an agent changed in the shared knowledge base, under the agent's name.
+# Keeps the shared knowledge base: cell-kb-commit [NAME]
+# Each cell edits its own copy of the docs, so whatever changed in a copy is that agent's work: it is
+# committed under the agent's name, merged into main (when two agents edit the same Markdown doc, both
+# sides' lines are kept) and the copy is brought up to date with what the others wrote. The repository
+# sits outside every sandbox, so nothing an agent writes is ever read as git settings or hooks.
+# ~/cells/knowledge is the copy you and the dashboard read; edits you make there are committed as yours.
 set -uo pipefail
 . "$(dirname "$(readlink -f "$0")")/cells-env"
 
-name="$1"
-state="$SCREENS/$name/state"
+name="${1:-}"
+g() { git --git-dir="$KNOWLEDGE_GIT" "$@"; }
+as() { local who="$1"; shift; g -c user.name="$who" -c user.email=cells@localhost "$@"; }
+in_copy() { local dir="$1"; shift; GIT_INDEX_FILE="$dir.index" g --work-tree="$dir" "$@"; }
 
-[ -d "$KNOWLEDGE/.git" ] || exit 0
+checkout() {
+    mkdir -p "$1"
+    in_copy "$1" read-tree --reset -u main || return 1
+    mkdir -p "$1/contexts"
+    g rev-parse main > "$1.base"
+}
+
+# sync DIR AUTHOR MESSAGE: commit what changed in DIR since its last sync, merge it into main, update DIR.
+sync() {
+    local dir="$1" who="$2" msg="$3" base main tree new merged
+    [ -f "$dir.base" ] || { checkout "$dir"; return; }
+    base="$(cat "$dir.base")"
+    main="$(g rev-parse main)" || return 1
+    in_copy "$dir" add -A || return 1
+    tree="$(in_copy "$dir" write-tree)" || return 1
+    new="$main"
+    if [ "$tree" != "$(g rev-parse "$base^{tree}")" ]; then
+        new="$(as "$who" commit-tree "$tree" -p "$base" -m "$msg")" || return 1
+        if [ "$base" != "$main" ]; then
+            merged="$(g merge-tree --write-tree "$main" "$new")"
+            [ $? -le 1 ] || return 1
+            merged="${merged%%$'\n'*}"
+            if [ "$merged" = "$(g rev-parse "$main^{tree}")" ]; then
+                new="$main"
+            else
+                new="$(as "$who" commit-tree "$merged" -p "$main" -m "$msg")" || return 1
+            fi
+        fi
+        g update-ref refs/heads/main "$new" "$main" || return 1
+    fi
+    in_copy "$dir" read-tree --reset -u "$new" || return 1
+    echo "$new" > "$dir.base"
+}
+
+setup() {
+    git init -q --bare -b main "$KNOWLEDGE_GIT" || return 1
+    echo '*.md merge=union' > "$KNOWLEDGE_GIT/info/attributes"
+    mkdir -p "$KNOWLEDGE"
+    chmod 700 "$KNOWLEDGE_GIT" "$KNOWLEDGE"
+    if [ -d "$KNOWLEDGE/.git" ]; then
+        # Older installs kept the repository inside the folder every agent wrote to: keep its history,
+        # commit what it had not committed yet, and drop it.
+        g fetch -q "$KNOWLEDGE/.git" HEAD:refs/heads/main || return 1
+        rm -rf "$KNOWLEDGE/.git"
+        in_copy "$KNOWLEDGE" read-tree main || return 1
+        g rev-parse main > "$KNOWLEDGE.base"
+        sync "$KNOWLEDGE" cells "knowledge: edits not committed before each agent had its own copy"
+    else
+        local blob tree
+        blob="$(printf 'lancedb/\nconfig.json\nconfig.toml\n' | g hash-object -w --stdin)" || return 1
+        tree="$(printf '100644 blob %s\t.gitignore\n' "$blob" | g mktree)" || return 1
+        g update-ref refs/heads/main "$(as cells commit-tree "$tree" -m "knowledge: start shared library")"
+    fi
+}
+
 (
     flock 9
-    git -C "$KNOWLEDGE" add -A
-    if ! git -C "$KNOWLEDGE" diff --cached --quiet; then
-        git -C "$KNOWLEDGE" -c user.name="cell $name" -c user.email="cells@localhost" \
-            commit -q -m "$(head -c 72 "$state/task.txt" | tr '\n' ' ')"
-        git -C "$KNOWLEDGE" show --stat --format='%h %s' HEAD >> "$state/knowledge-commit.txt"
+    g rev-parse -q --verify main >/dev/null 2>&1 || setup || { echo "knowledge: could not set up $KNOWLEDGE_GIT" >&2; exit 1; }
+    rc=0
+    if [ -n "$name" ]; then
+        cell="$SCREENS/$name"
+        before="$(g rev-parse main)"
+        sync "$cell/knowledge" "cell $name" "$(head -c 72 "$cell/state/task.txt" 2>/dev/null | tr '\n' ' ')" || {
+            echo "knowledge: could not sync $name's copy" >&2; rc=1; }
+        [ "$(g rev-parse main)" = "$before" ] || g show --stat --format='%h %s' main >> "$cell/state/knowledge-commit.txt"
     fi
+    sync "$KNOWLEDGE" "$CELLS_OWNER" "Edited by hand" || echo "knowledge: could not update $KNOWLEDGE" >&2
+    exit "$rc"
 ) 9>"$RUN/knowledge.lock"

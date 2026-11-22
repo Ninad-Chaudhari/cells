@@ -1,4 +1,5 @@
 """The Knowledge tab shows new docs, unsaved edits and commits as soon as they happen."""
+import os
 import subprocess
 import unittest
 
@@ -8,15 +9,16 @@ from server import config, knowledge
 
 
 def git(*args):
-    subprocess.run(["git", "-C", str(config.KNOWLEDGE), "-c", "user.name=cell scout", "-c", "user.email=c@localhost", *args],
-                   check=True, capture_output=True)
+    subprocess.run(["git", f"--git-dir={config.KNOWLEDGE_GIT}", f"--work-tree={config.KNOWLEDGE}",
+                    "-c", "user.name=cell scout", "-c", "user.email=c@localhost", *args],
+                   check=True, capture_output=True, env={**os.environ, "GIT_INDEX_FILE": f"{config.KNOWLEDGE}.index"})
 
 
 class KnowledgeTest(unittest.TestCase):
     def setUp(self):
         reset()
         (config.CONTEXTS / "general").mkdir(parents=True)
-        git("init", "-q")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(config.KNOWLEDGE_GIT)], check=True)
         (config.CONTEXTS / "general" / "readme.md").write_text("# Shared notes\n")
         git("add", "-A")
         git("commit", "-qm", "start")

@@ -1,6 +1,7 @@
 """Supervises one agent. Runs its first turn on the task, then a new turn for each message you send once
-it is idle; keeps state/status current, logs events to state/stream.jsonl and commits the shared knowledge
-base after every turn. Messages that arrive mid-task are handed over by the in-sandbox hook instead."""
+it is idle; keeps state/status current, logs events to state/stream.jsonl and syncs the agent's copy of the
+shared knowledge base before and after every turn. Messages that arrive mid-task are handed over by the
+in-sandbox hook instead."""
 import os
 import shutil
 import subprocess
@@ -28,7 +29,8 @@ class Supervisor:
     def status(self, value):
         (self.cell.state / "status").write_text(value + "\n")
 
-    def commit_knowledge(self):
+    def sync_knowledge(self):
+        """Commit this agent's knowledge edits under its name and bring its copy up to date with the others'."""
         subprocess.run([os.path.join(os.environ["CELLS_APP"], "bin", "cell-kb-commit"), self.cell.name])
 
     def note_hook_deliveries(self):
@@ -64,8 +66,9 @@ class Supervisor:
             turn = ((c.state / "task.txt").read_text().strip(), [])
             while turn is not None:
                 self.status("running")
+                self.sync_knowledge()
                 alive = self.driver.turn(*turn, self.log.write)
-                self.commit_knowledge()
+                self.sync_knowledge()
                 if not alive:
                     break
                 if not self.inbox.has_pending():

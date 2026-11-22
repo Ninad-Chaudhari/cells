@@ -29,7 +29,7 @@ Computer-use agents need a computer, and running more than one on the same deskt
 - **Take over.** Click and type on any agent's screen. The agent pauses until you hand it back.
 - **Chat, with images.** Message an agent mid-task or after it's done. Paste or drop screenshots. Long chats load a page at a time.
 - **Human in the loop.** Agents ask for help when they hit a login, a CAPTCHA or a decision, and their cell lights up.
-- **Shared knowledge base.** A git-backed folder of Markdown that every agent reads and writes. Every change is a commit you can browse and diff.
+- **Shared knowledge base.** A git-backed folder of Markdown that every agent reads and writes. Each agent edits its own copy; after every turn its changes become a commit under its name, merged with everyone else's, that you can browse and diff.
 - **History.** Every run is archived with its chat, result and files. Search it, replay it, delete one run or all of them.
 - **Metrics.** Host CPU, memory and disk, and what each agent uses (CPU, memory, disk, processes, tokens), read from the kernel's cgroup counters, not estimated. Each agent has a memory cap and a process cap.
 - **Small.** A standard-library Python server and plain JavaScript. No Docker, no database, no build step, no root at runtime.
@@ -127,6 +127,7 @@ Agents run with their runtime's permission prompts off, so the sandbox is what k
 
 - The host filesystem is read-only. Home directories, `~/cells` (other agents' chats, your token, the dashboard socket) and every other cell's home are hidden; a cell sees only its own home.
 - Each cell has its own PID namespace and X authority cookie, so it can't signal other processes or open other cells' screens.
+- A cell edits only its own copy of the knowledge base. The git repository lives outside every sandbox, so nothing an agent writes is ever read as git settings or hooks.
 - Cells share the host's network. Anything listening on `localhost` is reachable, including the dashboard if you turn on `CELLS_DASH_TCP`.
 - An X server that trusts your whole user (`xhost +SI:localuser:...`, common with xrdp) is reachable too. Run Cells under a dedicated user if that matters.
 
