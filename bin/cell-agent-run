@@ -47,9 +47,12 @@ keep() {
 }
 runtime_real="$(readlink -f "$runtime_bin")"
 keep "$(dirname "$(dirname "$runtime_real")")" "$(dirname "$(dirname "$(readlink -f "$CELLS_NODE")")")" "$CELLS_HOME/opt"
-case "$(readlink -f "$CELLS_CHROME_BIN")" in
-    "$HOME"/.cache/ms-playwright/*) keep "$HOME/.cache/ms-playwright" ;;
-    *) keep "$(dirname "$(readlink -f "$CELLS_CHROME_BIN")")" ;;
+# Playwright's Chromium: share only its own folder, so the rest of ~/.cache/ms-playwright (where Playwright
+# MCP keeps lock files) stays the cell's own and writable.
+chrome_real="$(readlink -f "$CELLS_CHROME_BIN")"
+case "$chrome_real" in
+    "$HOME"/.cache/ms-playwright/*) rel="${chrome_real#"$HOME"/.cache/ms-playwright/}"; keep "$HOME/.cache/ms-playwright/${rel%%/*}" ;;
+    *) keep "$(dirname "$chrome_real")" ;;
 esac
 
 args+=(
