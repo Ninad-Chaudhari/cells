@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cells</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Cells, the OS for AI agents: run many agents in sandboxed Linux desktops and watch, steer and chat with them.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="#/agents"><span class="mark"><i></i><i></i><i></i><i></i></span><b>Cells</b><small id="hostLabel">OS for agents</small></a>
+  <nav class="nav">
+    <button data-route="#/agents" data-view="agents"><span data-icon="grid"></span><span class="lbl">Agents</span><span class="n" id="nAgents">0</span></button>
+    <button data-route="#/history" data-view="history"><span data-icon="clock"></span><span class="lbl">History</span><span class="n" id="nHistory">0</span></button>
+    <button data-route="#/knowledge" data-view="kb"><span data-icon="book"></span><span class="lbl">Knowledge</span><span class="n" id="nKb">0</span></button>
+  </nav>
+  <span class="grow"></span>
+  <div class="stats" id="stats"></div>
+  <div class="conn" id="live" data-tip="Connection to the cells host" data-tip-pos="left"><span class="dot green"></span><span id="liveText">Live</span></div>
+  <button class="btn primary sm" id="newAgent" data-tip="New agent · N" data-tip-pos="left"><span data-icon="plus"></span><span class="lbl">New agent</span></button>
+</header>
+
+<main>
+  <section id="agentsView">
+    <div class="helpstrip hidden" id="helpstrip"></div>
+    <div class="grid" id="grid"></div>
+    <div class="empty hidden" id="empty">
+      <div class="big" data-icon="grid"></div>
+      <h2>No agents running</h2>
+      <p>Each agent gets its own screen, browser and shell. Watch it here, take over, or chat with it.</p>
+      <button class="btn primary" id="emptyNew"><span data-icon="plus"></span>Start an agent</button>
+      <div class="or">or from a terminal</div>
+      <div class="cmd"><span id="cmdText">cell up research "Summarize the top stories on Hacker News"</span><button class="iconbtn sm" id="copyCmd" data-tip="Copy"><span data-icon="copy"></span></button></div>
+    </div>
+  </section>
+
+  <section id="launchView" class="hidden">
+    <div class="launch">
+      <h1>What should an agent work on?</h1>
+      <form class="cpill big" id="launchForm" autocomplete="off">
+        <div class="attachments" id="lAttachments"></div>
+        <textarea id="lTask" rows="1" placeholder="Describe a task. It gets its own screen, browser and shell."></textarea>
+        <div class="pillbar">
+          <button type="button" class="plus" id="lAttach" data-tip="Add images" data-tip-pos="up"><span data-icon="plus"></span></button>
+          <label class="namechip" data-tip="Agent name" data-tip-pos="up"><span data-icon="cursor"></span><input id="lName" class="mono" spellcheck="false" maxlength="31"></label>
+          <span class="grow"></span>
+          <span class="err" id="lErr"></span>
+          <button type="submit" class="sendbtn" id="lStart" data-tip="Start · Enter" data-tip-pos="up"><span data-icon="up"></span></button>
+        </div>
+        <input type="file" id="lFile" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+        <div class="dropzone hidden" id="lDrop">Drop images to attach</div>
+      </form>
+      <div class="ideas" id="ideas"></div>
+    </div>
+  </section>
+
+  <section id="focusView" class="hidden">
+    <div class="ftop">
+      <button class="iconbtn" id="back" data-tip="All agents · Esc"><span data-icon="back"></span></button>
+      <h1 id="fname"></h1>
+      <span class="status" id="fstatus"></span>
+      <span class="fmeta mono" id="fmeta"></span>
+      <span class="grow"></span>
+      <div class="seg mini" id="layoutSeg">
+        <button data-layout="screen" data-tip="Screen only" data-tip-pos="left"><span data-icon="monitor"></span></button>
+        <button data-layout="both" data-tip="Screen and chat" data-tip-pos="left"><span data-icon="split"></span></button>
+        <button data-layout="chat" data-tip="Chat only" data-tip-pos="left"><span data-icon="chat"></span></button>
+      </div>
+      <button class="btn danger" id="stop" data-tip="End this session. Its history is kept." data-tip-pos="left"><span data-icon="stop"></span><span id="stopLabel">Stop</span></button>
+      <button class="btn" id="pause" data-tip="Freeze the agent where it is" data-tip-pos="left"></button>
+      <button class="btn" id="take" data-tip="Drive its screen with your mouse and keys. The agent pauses until you release. ⌘ is sent as Ctrl." data-tip-pos="left"></button>
+    </div>
+    <div class="helpbar hidden" id="fhelp">
+      <span data-icon="alert"></span>
+      <div class="hm" id="fhelpmsg"></div>
+      <input class="field" id="note" placeholder="Note (optional)" size="22">
+      <button class="btn amber" id="resolve"><span data-icon="check"></span>Resume agent</button>
+    </div>
+    <div class="fbody" id="fbody" data-layout="both">
+      <div class="stagecol">
+        <div class="stage" id="stage">
+          <img id="fimg" alt="">
+          <div class="idle hidden" id="stageIdle"></div>
+        </div>
+        <div class="typer" data-tip="Types on its screen as keystrokes, e.g. into a login field">
+          <span data-icon="keyboard"></span>
+          <input id="text" placeholder="Type on screen…">
+          <button class="iconbtn sm" id="send" data-tip="Type it" data-tip-pos="left"><span data-icon="enter"></span></button>
+        </div>
+      </div>
+      <div class="splitter" id="splitter" title="Drag to resize · double-click to reset"></div>
+      <aside class="side" id="side">
+        <div class="sidehead"><div class="seg" id="sideTabs"><button class="on" data-tab="activity">Chat</button><button data-tab="task">Task</button></div></div>
+        <div class="pane" id="activityPane">
+          <div class="more hidden" id="more"><button class="btn sm">Load earlier</button></div>
+          <div class="feed" id="feed"></div>
+          <div class="jump hidden" id="jump"><button class="glass">↓ Latest</button></div>
+        </div>
+        <div class="pane hidden" id="taskPane">
+          <div class="kv">
+            <div class="section-t" style="margin-top:6px">Task</div><div class="prose" id="ttask"></div>
+            <div class="section-t">Started</div><div id="tstarted"></div>
+            <div id="tresultWrap"><div class="section-t">Latest result</div><div class="prose" id="tresult"></div></div>
+          </div>
+        </div>
+        <div class="composer" id="composer">
+          <div class="queued" id="queued"></div>
+          <div class="cpill">
+            <div class="attachments" id="attachments"></div>
+            <textarea id="msg" rows="1"></textarea>
+            <div class="pillbar">
+              <button class="plus" id="attach" data-tip="Add images (or paste / drop them)" data-tip-pos="up"><span data-icon="plus"></span></button>
+              <span class="chip" id="deliv"></span>
+              <span class="grow"></span>
+              <button class="sendbtn" id="msgSend" data-tip="Send · Enter" data-tip-pos="up"><span data-icon="up"></span></button>
+            </div>
+          </div>
+          <input type="file" id="filePick" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+        </div>
+        <div class="dropzone hidden" id="dropzone">Drop images to attach</div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="historyView" class="hidden">
+    <div class="split2">
+      <aside class="sidelist">
+        <div class="search"><span data-icon="search"></span><input id="hq" placeholder="Search past runs"></div>
+        <div class="listhead"><span class="muted" id="hcount" style="font-size:12px"></span><span class="grow"></span><button class="btn danger sm" id="hclear" data-tip="Delete every archived run" data-tip-pos="left"><span data-icon="trash"></span><span id="hclearLabel">Clear all</span></button></div>
+        <div class="list" id="hlist"></div>
+      </aside>
+      <div id="hmain"></div>
+    </div>
+  </section>
+
+  <section id="kbView" class="hidden">
+    <div class="split2">
+      <aside class="sidelist">
+        <div class="search"><span data-icon="search"></span><input id="kbq" placeholder="Search knowledge"></div>
+        <div class="seg" id="kbseg"><button class="on" data-k="docs">Docs</button><button data-k="changes">Changes</button></div>
+        <div class="list" id="kblist"></div>
+      </aside>
+      <div id="kbmain"></div>
+    </div>
+  </section>
+</main>
+<div id="toasts"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="/static/core.js"></script>
+<script src="/static/feed.js"></script>
+<script src="/static/compose.js"></script>
+<script src="/static/agents.js"></script>
+<script src="/static/chat.js"></script>
+<script src="/static/launch.js"></script>
+<script src="/static/history.js"></script>
+<script src="/static/knowledge.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
