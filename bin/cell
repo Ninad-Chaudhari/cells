@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+# cell: start, message, stop and inspect sandboxed agents.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/cells-env"
+
+usage() {
+    cat >&2 <<EOF
+usage:
+  cell up NAME "TASK"       start an agent in its own cell
+  cell say NAME "MESSAGE" [IMAGE...]
+                            message a running agent, optionally with images
+  cell down NAME            stop it and keep its history
+  cell ls                   list agents
+  cell history [NAME]       past runs (cell history rm ID, cell history clear --yes)
+  cell auth                 store a Claude token (reads it from stdin)
+  cell doctor               check that everything is installed
+  cell dashboard            run the dashboard server (systemd does this for you)
+EOF
+    exit 2
+}
+
+valid() {
+    [[ "${1:-}" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || { echo "name: lowercase letters, digits, dashes" >&2; exit 2; }
+}
+
+running_agents() {
+    cat "$SCREENS"/*/state/status 2>/dev/null | grep -cxE 'starting|running' || true
+}
+
+status_of() {
+    cat "$SCREENS/$1/state/status" 2>/dev/null || true
+}
+
+init_knowledge() {
+    [ -d "$KNOWLEDGE/.git" ] && return 0
+    mkdir -p "$KNOWLEDGE/contexts/general"
+    chmod 700 "$KNOWLEDGE"
+    git -C "$KNOWLEDGE" init -q -b main
+    printf "lancedb/\nconfig.json\nconfig.toml\n" > "$KNOWLEDGE/.gitignore"
+    git -C "$KNOWLEDGE" add -A
+    git -C "$KNOWLEDGE" -c user.name=cells -c user.email=cells@localhost commit -q -m "knowledge: start shared library"
+}
+
+archive() {
+    local name="$1" cell="$SCREENS/$1" dest
+    [ -d "$cell/state" ] || return 0
+    dest="$HISTORY/$(date +%Y%m%d-%H%M%S)-$name"
+    mkdir -p "$dest"
+    chmod 700 "$HISTORY" "$dest"
+    cp -a "$cell/state/." "$dest/"
+    if [ -d "$cell/home" ]; then
+        mkdir -p "$dest/home"
+        tar -C "$cell/home" -cf - \
+            --exclude=./chrome-profile --exclude=./.Xauthority --exclude=./.cache --exclude=./.pki \
+            --exclude=./.config/google-chrome --exclude=./.config/chromium --exclude=./.local/share/pki --exclude=./.cell \
+            . | tar -C "$dest/home" -xf -
+    fi
+    date +%s > "$dest/ended"
+    python3 - "$dest" <<'EOF'
+import json, pathlib, sys
+d = pathlib.Path(sys.argv[1])
+result = ""
+try:
+    for line in (d / "stream.jsonl").read_text(errors="replace").splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get("type") == "result":
+            result = ev.get("result") or ev.get("subtype", "")
+except OSError:
+    pass
+(d / "result.txt").write_text(result + "\n" if result else "")
+EOF
+    echo "history kept in $dest"
+}
+
+copy_profile() {
+    local dst="$1"
+    mkdir -p "$dst"
+    [ -n "$CELLS_CHROME_PROFILE" ] && [ -d "$CELLS_CHROME_PROFILE/Default" ] || return 0
+    cp "$CELLS_CHROME_PROFILE/Local State" "$dst/" 2>/dev/null || true
+    { tar -C "$CELLS_CHROME_PROFILE" -cf - --warning=no-file-changed --warning=no-file-removed \
+        --exclude='Default/Cache' --exclude='Default/Code Cache' --exclude='Default/GPUCache' \
+        --exclude='Default/Service Worker' --exclude='Default/DawnGraphiteCache' --exclude='Default/DawnWebGPUCache' \
+        Default || [ $? -eq 1 ]; } | tar -C "$dst" -xf -
+}
+
+check() {
+    local label="$1" hint="$2"
+    shift 2
+    if "$@" >/dev/null 2>&1; then printf '  \033[32m✓\033[0m %s\n' "$label"
+    else printf '  \033[31m✗\033[0m %s\n      %s\n' "$label" "$hint"; failed=1; fi
+}
+
+doctor() {
+    failed=0
+    echo "Tools"
+    for b in bwrap Xvfb xdotool xauth mcookie python3 git systemd-run; do
+        check "$b" "run ./install.sh" command -v "$b"
+    done
+    check "python3 Pillow" "sudo apt install python3-pil" python3 -c "import PIL.ImageGrab"
+    check "node ($CELLS_NODE)" "install Node.js 18+ (https://nodejs.org)" test -x "$CELLS_NODE"
+    check "claude ($CELLS_CLAUDE)" "install Claude Code: npm i -g @anthropic-ai/claude-code" test -x "$CELLS_CLAUDE"
+    check "browser ($CELLS_CHROME_BIN)" "install Google Chrome or run ./install.sh --with-chromium" test -x "$CELLS_CHROME_BIN"
+    check "browser starts" "missing system libraries? run: sudo $CELLS_HOME/opt/playwright-mcp/node_modules/.bin/playwright install-deps chromium" \
+        timeout 30 "$CELLS_CHROME_BIN" --headless=new --no-sandbox --disable-gpu --dump-dom about:blank
+    check "Playwright MCP" "run ./install.sh" test -f "$CELLS_PLAYWRIGHT_MCP"
+    check "window manager ($CELLS_WM)" "optional: sudo apt install xfwm4 (or openbox)" test -n "$CELLS_WM"
+    echo "Sandbox"
+    check "bubblewrap can create a sandbox" "see README → Troubleshooting" \
+        bwrap --ro-bind / / --dev /dev --proc /proc --unshare-pid --die-with-parent true
+    check "systemd user session" "log in with a systemd user session; for headless hosts run: loginctl enable-linger $USER" \
+        systemctl --user show-environment
+    echo "Claude"
+    check "credentials" "run: claude setup-token, then paste the token into: cell auth" \
+        bash -c '[ -s "$CELLS_TOKEN_FILE" ] || [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ]'
+    echo "Dashboard"
+    check "service $CELLS_UNIT-dash" "run ./install.sh, or: systemctl --user restart $CELLS_UNIT-dash" \
+        systemctl --user is-active "$CELLS_UNIT-dash"
+    check "socket $RUN/dash.sock" "the dashboard is not running" test -S "$RUN/dash.sock"
+    [ "$failed" = 0 ] && echo "All good." || { echo "Fix the ✗ items above, then run cell doctor again."; exit 1; }
+}
+
+mkdir -p "$SCREENS" "$RUN" "$HISTORY"
+chmod 700 "$RUN"
+
+case "${1:-}" in
+up)
+    name="${2:-}"; valid "$name"
+    task="${3:-}"; [ -n "$task" ] || usage
+    if systemctl --user is-active --quiet "$CELLS_UNIT-agent-$name"; then echo "$name is already running" >&2; exit 1; fi
+    if [ -e "$SCREENS/$name" ]; then echo "$name exists; stop it first with: cell down $name" >&2; exit 1; fi
+    if [ "$(running_agents)" -ge "$CELLS_MAX" ]; then echo "$CELLS_MAX agents already running (CELLS_MAX)" >&2; exit 1; fi
+    init_knowledge
+
+    "$CELLS_APP/bin/cell-screen" up "$name" >/dev/null
+    cell="$SCREENS/$name"
+    n="$(cat "$cell/display")"
+    mkdir -p "$cell/state"
+    chmod 700 "$cell"
+    if [ -n "$CELLS_LOCAL" ]; then
+        mkdir -p "$CELLS_LOCAL/$name"
+        chmod 700 "$CELLS_LOCAL" "$CELLS_LOCAL/$name"
+        ln -sfn "$CELLS_LOCAL/$name" "$cell/home"
+    else
+        mkdir -p "$cell/home"
+        chmod 700 "$cell/home"
+    fi
+    copy_profile "$cell/home/chrome-profile"
+
+    rm -f "$cell/home/.Xauthority"; touch "$cell/home/.Xauthority"
+    xauth -q -f "$AUTH" extract - ":$n" | xauth -q -f "$cell/home/.Xauthority" merge -
+
+    printf '%s\n' "$task" > "$cell/state/task.txt"
+    echo starting > "$cell/state/status"
+
+    systemd-run --user --quiet --collect --unit "$CELLS_UNIT-agent-$name" -p MemoryMax="$CELLS_MEMORY_MAX" \
+        "$CELLS_APP/bin/cell-agent-run" "$name"
+    echo "$name started on :$n"
+    ;;
+say)
+    name="${2:-}"; valid "$name"
+    text="${3:-}"; [ -n "$text" ] || usage
+    case "$(status_of "$name")" in
+        starting|running|idle) ;;
+        *) echo "$name is not running; start a new agent with cell up" >&2; exit 1 ;;
+    esac
+    inbox="$SCREENS/$name/state/inbox"
+    mkdir -p "$inbox/files"
+    id="$(date +%s%N)"
+    images=()
+    i=0
+    for img in "${@:4}"; do
+        [ -f "$img" ] || { echo "no such image: $img" >&2; exit 1; }
+        ext="${img##*.}"; ext="$(printf '%s' "$ext" | tr 'A-Z' 'a-z')"
+        case "$ext" in png|jpg|jpeg|gif|webp) ;; *) echo "not an image: $img" >&2; exit 1 ;; esac
+        cp "$img" "$inbox/files/$id-$i.$ext"
+        images+=("files/$id-$i.$ext")
+        i=$((i + 1))
+    done
+    python3 -c 'import json, sys, time; json.dump({"text": sys.argv[1], "images": sys.argv[3:], "at": int(time.time())}, open(sys.argv[2], "w"))' \
+        "$text" "$inbox/.$$.tmp" ${images[@]+"${images[@]}"}
+    mv "$inbox/.$$.tmp" "$inbox/$id.json"
+    echo "message queued for $name${images[*]:+ with ${#images[@]} image(s)}"
+    ;;
+down)
+    name="${2:-}"; valid "$name"
+    if systemctl --user is-active --quiet "$CELLS_UNIT-agent-$name"; then
+        if [ "$(status_of "$name")" = idle ]; then final=finished; else final=stopped; fi
+        systemctl --user stop "$CELLS_UNIT-agent-$name" || true
+        echo "$final" > "$SCREENS/$name/state/status"
+    fi
+    archive "$name"
+    home="$(readlink -f "$SCREENS/$name/home" 2>/dev/null || true)"
+    "$CELLS_APP/bin/cell-screen" down "$name"
+    if [ -n "$CELLS_LOCAL" ]; then case "$home" in "$CELLS_LOCAL"/?*) rm -rf "$home" ;; esac; fi
+    ;;
+ls)
+    for d in "$SCREENS"/*/; do
+        [ -e "$d/state/status" ] || continue
+        name="$(basename "$d")"
+        flags=""
+        [ -e "$d/state/help.json" ] && flags="$flags needs-help"
+        [ -e "$d/state/paused" ] && flags="$flags paused"
+        echo "$name :$(cat "$d/display") $(cat "$d/state/status")$flags"
+    done
+    ;;
+history)
+    name="${2:-}"
+    if [ "$name" = rm ]; then
+        id="${3:-}"
+        [[ "$id" =~ ^[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{0,30}$ ]] && [ -d "$HISTORY/$id" ] || { echo "no archive $id" >&2; exit 1; }
+        rm -rf "${HISTORY:?}/$id"
+        echo "deleted $id"
+        exit 0
+    fi
+    if [ "$name" = clear ]; then
+        [ "${3:-}" = "--yes" ] || { echo "this deletes every archived run; repeat with: cell history clear --yes" >&2; exit 1; }
+        find "${HISTORY:?}" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*-*' -exec rm -rf {} +
+        echo "history cleared"
+        exit 0
+    fi
+    if [ -z "$name" ]; then
+        for d in "$HISTORY"/*/; do
+            [ -d "$d" ] || continue
+            printf '%-32s %-12s %s\n' "$(basename "$d")" "$(cat "$d/status" 2>/dev/null)" \
+                "$(head -c 70 "$d/task.txt" 2>/dev/null | tr '\n' ' ')"
+        done
+        exit 0
+    fi
+    valid "$name"
+    d=""
+    for c in "$HISTORY"/*/; do
+        b="$(basename "$c")"
+        [ "${b#*-*-}" = "$name" ] && d="${c%/}"
+    done
+    [ -n "$d" ] || { echo "no history for $name" >&2; exit 1; }
+    echo "path:   $d"
+    echo "status: $(cat "$d/status" 2>/dev/null)"
+    echo "task:   $(cat "$d/task.txt" 2>/dev/null)"
+    echo "result:"
+    cat "$d/result.txt" 2>/dev/null
+    ;;
+auth)
+    mkdir -p "$(dirname "$CELLS_TOKEN_FILE")"
+    chmod 700 "$(dirname "$CELLS_TOKEN_FILE")"
+    if [ -t 0 ]; then printf 'Paste the token from `claude setup-token` and press Enter: ' >&2; fi
+    IFS= read -rs token || true
+    echo >&2
+    token="$(printf '%s' "$token" | tr -d '[:space:]"')"
+    token="${token#CLAUDE_CODE_OAUTH_TOKEN=}"
+    [ -n "$token" ] || { echo "no token given" >&2; exit 1; }
+    ( umask 077; printf '%s\n' "$token" > "$CELLS_TOKEN_FILE" )
+    echo "saved to $CELLS_TOKEN_FILE"
+    ;;
+doctor)
+    doctor
+    ;;
+dashboard)
+    cd "$CELLS_APP"
+    exec python3 -m server.main
+    ;;
+*)
+    usage
+    ;;
+esac

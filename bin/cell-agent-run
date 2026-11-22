@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# Runs one agent: a Claude Code session in a bubblewrap sandbox, on its own screen, with its own browser.
+set -uo pipefail
+. "$(dirname "$(readlink -f "$0")")/cells-env"
+
+name="$1"
+cell="$SCREENS/$name"
+state="$cell/state"
+n="$(cat "$cell/display")"
+inner="$HOME/.cell"
+parent="$(dirname "$HOME")"
+
+claude_bin="$(readlink -f "$CELLS_CLAUDE")"
+node_bin="$(readlink -f "$CELLS_NODE")"
+chrome_bin="$(readlink -f "$CELLS_CHROME_BIN")"
+
+knowledge_mcp=""
+disallow=()
+if [ -f "$CELLS_OPENCONTEXT" ]; then
+    knowledge_mcp=",
+    \"opencontext\": {
+      \"command\": \"$node_bin\",
+      \"args\": [\"$CELLS_OPENCONTEXT\", \"mcp\"],
+      \"env\": { \"OPENCONTEXT_ROOT\": \"$inner/knowledge\" }
+    }"
+    disallow=(--disallowedTools mcp__opencontext__oc_search)
+fi
+
+cat > "$cell/home/mcp.json" <<EOF
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "$node_bin",
+      "args": [
+        "$CELLS_PLAYWRIGHT_MCP",
+        "--executable-path", "$inner/bin/cell-chrome",
+        "--no-sandbox",
+        "--user-data-dir", "$HOME/chrome-profile",
+        "--output-dir", "$HOME/playwright"
+      ]
+    }$knowledge_mcp
+  }
+}
+EOF
+
+cat > "$cell/home/cell-settings.json" <<EOF
+{
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "$inner/bin/cell-inbox-hook" } ] }
+    ]
+  }
+}
+EOF
+
+instructions="$(cat "$CELLS_APP/share/instructions.md")"
+instructions="${instructions//@NAME@/$name}"
+instructions="${instructions//@DISPLAY@/:$n}"
+instructions="${instructions//@OWNER@/$CELLS_OWNER}"
+
+token="${CLAUDE_CODE_OAUTH_TOKEN:-}"
+[ -z "$token" ] && [ -s "$CELLS_TOKEN_FILE" ] && token="$(tr -d '[:space:]' < "$CELLS_TOKEN_FILE")"
+
+args=(
+    --ro-bind / /
+    --dev /dev --proc /proc
+    --tmpfs /tmp
+    --ro-bind "/tmp/.X11-unix/X$n" "/tmp/.X11-unix/X$n"
+)
+# Hide every place that holds your files or other cells' files: the folder of home directories, the
+# cells state (other agents' chats, the token) and the local cell homes (other agents' browser profiles).
+hidden=()
+for root in "$parent" "$CELLS_HOME" "$CELLS_LOCAL"; do
+    [ -n "$root" ] && [ "$root" != "/" ] && [ -d "$root" ] || continue
+    case "$root/" in "$parent"/*) [ "$root" = "$parent" ] || continue ;; esac
+    hidden+=("$root")
+    args+=(--tmpfs "$root")
+done
+args+=(--bind "$cell/home" "$HOME")
+
+keep() {
+    local p h
+    for p in "$@"; do
+        [ -n "$p" ] && [ -e "$p" ] || continue
+        for h in "${hidden[@]}"; do
+            case "$p" in "$h"/*) args+=(--ro-bind "$p" "$p"); break ;; esac
+        done
+    done
+}
+keep "$(dirname "$claude_bin")" "$(dirname "$(dirname "$node_bin")")" "$CELLS_HOME/opt"
+case "$chrome_bin" in
+    "$HOME"/.cache/ms-playwright/*) keep "$HOME/.cache/ms-playwright" ;;
+    *) keep "$(dirname "$chrome_bin")" ;;
+esac
+
+args+=(
+    --bind "$state" "$inner/state"
+    --bind "$KNOWLEDGE" "$inner/knowledge"
+    --ro-bind "$CELLS_APP/bin/need-help" "$inner/bin/need-help"
+    --ro-bind "$CELLS_APP/bin/cell-chrome" "$inner/bin/cell-chrome"
+    --ro-bind "$CELLS_APP/bin/cell-inbox-hook" "$inner/bin/cell-inbox-hook"
+    --tmpfs "/run/user/$(id -u)"
+    --unshare-pid --die-with-parent --new-session
+    --clearenv
+    --setenv HOME "$HOME"
+    --setenv USER "$USER"
+    --setenv LANG C.UTF-8
+    --setenv PATH "$inner/bin:$(dirname "$node_bin"):/usr/local/bin:/usr/bin:/bin"
+    --setenv DISPLAY ":$n"
+    --setenv XAUTHORITY "$HOME/.Xauthority"
+    --setenv CELL_NAME "$name"
+    --setenv CELL_STATE "$inner/state"
+    --setenv CELLS_OWNER "$CELLS_OWNER"
+    --setenv CELLS_CHROME_BIN "$chrome_bin"
+    --setenv CELLS_KNOWLEDGE "$inner/knowledge/contexts"
+    --setenv OPENCONTEXT_ROOT "$inner/knowledge"
+    --setenv OPENCONTEXT_CONTEXTS_ROOT "$inner/knowledge/contexts"
+    --setenv CLAUDE_CONFIG_DIR "$HOME/.claude"
+    --chdir "$HOME"
+)
+[ -n "$token" ] && args+=(--setenv CLAUDE_CODE_OAUTH_TOKEN "$token")
+[ -n "${ANTHROPIC_API_KEY:-}" ] && args+=(--setenv ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY")
+
+mkdir -p "$state/inbox/delivered" "$state/inbox/files"
+date +%s > "$state/started"
+
+python3 "$CELLS_APP/bin/cell-agent-io" "$state" -- \
+    bwrap "${args[@]}" \
+    "$claude_bin" -p \
+        --input-format stream-json --output-format stream-json --verbose \
+        --dangerously-skip-permissions \
+        --settings "$HOME/cell-settings.json" \
+        --mcp-config "$HOME/mcp.json" --strict-mcp-config \
+        "${disallow[@]}" \
+        --append-system-prompt "$instructions"
+code=$?
+
+"$CELLS_APP/bin/cell-kb-commit" "$name"
+
+if [ "$code" -eq 0 ]; then echo finished > "$state/status"; else echo "failed ($code)" > "$state/status"; fi
+exit "$code"

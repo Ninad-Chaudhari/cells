@@ -1,0 +1,5 @@
+#!/bin/sh
+# Browser wrapper used inside a cell. Chrome's own sandbox can't start inside bubblewrap;
+# the cell's sandbox is the boundary instead.
+exec "${CELLS_CHROME_BIN:?}" --no-sandbox --test-type --hide-crash-restore-bubble --password-store=basic \
+    --no-first-run --no-default-browser-check "$@"
