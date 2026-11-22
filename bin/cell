@@ -6,13 +6,15 @@ set -euo pipefail
 usage() {
     cat >&2 <<EOF
 usage:
-  cell up NAME "TASK"       start an agent in its own cell
+  cell up NAME "TASK" [--runtime claude|codex]
+                            start an agent in its own cell
   cell say NAME "MESSAGE" [IMAGE...]
                             message a running agent, optionally with images
   cell down NAME            stop it and keep its history
   cell ls                   list agents
   cell history [NAME]       past runs (cell history rm ID, cell history clear --yes)
-  cell auth                 store a Claude token (reads it from stdin)
+  cell auth [claude|codex] [--access-token]
+                            store a credential (read hidden from stdin)
   cell doctor               check that everything is installed
   cell dashboard            run the dashboard server (systemd does this for you)
 EOF
@@ -21,6 +23,28 @@ EOF
 
 valid() {
     [[ "${1:-}" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || { echo "name: lowercase letters, digits, dashes" >&2; exit 2; }
+}
+
+# Prints why a runtime can't start an agent; prints nothing when it can.
+runtime_problem() {
+    case "$1" in
+        claude)
+            [ -x "$CELLS_CLAUDE" ] || { echo "Claude Code isn't installed (./install.sh)"; return; }
+            [ -s "$CELLS_TOKEN_FILE" ] || [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ] || \
+                echo "no Claude credential: run claude setup-token, then cell auth claude" ;;
+        codex)
+            [ -x "$CELLS_CODEX" ] || { echo "Codex isn't installed (./install.sh --with-codex)"; return; }
+            [ -s "$CELLS_OPENAI_KEY_FILE" ] || [ -s "$CELLS_CODEX_TOKEN_FILE" ] || [ -n "${CODEX_API_KEY:-}${CODEX_ACCESS_TOKEN:-}" ] || \
+                echo "no Codex credential: run cell auth codex" ;;
+        *) echo "unknown runtime: $1 (claude or codex)" ;;
+    esac
+}
+
+# MemoryHigh at 90% of MemoryMax: the kernel reclaims and slows the agent before it is killed.
+memory_high() {
+    local max
+    max="$(numfmt --from=iec "$CELLS_MEMORY_MAX" 2>/dev/null)" || { echo infinity; return; }
+    echo $((max / 10 * 9))
 }
 
 running_agents() {
@@ -52,7 +76,7 @@ archive() {
         mkdir -p "$dest/home"
         tar -C "$cell/home" -cf - \
             --exclude=./chrome-profile --exclude=./.Xauthority --exclude=./.cache --exclude=./.pki \
-            --exclude=./.config/google-chrome --exclude=./.config/chromium --exclude=./.local/share/pki --exclude=./.cell \
+            --exclude=./.config/google-chrome --exclude=./.config/chromium --exclude=./.local/share/pki --exclude=./.cell --exclude=./.claude --exclude=./.codex \
             . | tar -C "$dest/home" -xf -
     fi
     date +%s > "$dest/ended"
@@ -101,7 +125,6 @@ doctor() {
     done
     check "python3 Pillow" "sudo apt install python3-pil" python3 -c "import PIL.ImageGrab"
     check "node ($CELLS_NODE)" "install Node.js 18+ (https://nodejs.org)" test -x "$CELLS_NODE"
-    check "claude ($CELLS_CLAUDE)" "install Claude Code: npm i -g @anthropic-ai/claude-code" test -x "$CELLS_CLAUDE"
     check "browser ($CELLS_CHROME_BIN)" "install Google Chrome or run ./install.sh --with-chromium" test -x "$CELLS_CHROME_BIN"
     check "browser starts" "missing system libraries? run: sudo $CELLS_HOME/opt/playwright-mcp/node_modules/.bin/playwright install-deps chromium" \
         timeout 30 "$CELLS_CHROME_BIN" --headless=new --no-sandbox --disable-gpu --dump-dom about:blank
@@ -112,9 +135,18 @@ doctor() {
         bwrap --ro-bind / / --dev /dev --proc /proc --unshare-pid --die-with-parent true
     check "systemd user session" "log in with a systemd user session; for headless hosts run: loginctl enable-linger $USER" \
         systemctl --user show-environment
-    echo "Claude"
-    check "credentials" "run: claude setup-token, then paste the token into: cell auth" \
-        bash -c '[ -s "$CELLS_TOKEN_FILE" ] || [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ]'
+    echo "Runtimes (at least one)"
+    ready=0
+    for r in claude codex; do
+        problem="$(runtime_problem "$r")"
+        if [ -z "$problem" ]; then printf '  \033[32m✓\033[0m %s\n' "$r"; ready=1
+        else printf '  \033[2m–\033[0m %s: %s\n' "$r" "$problem"; fi
+    done
+    [ "$ready" = 1 ] || failed=1
+    for f in "$CELLS_TOKEN_FILE" "$CELLS_OPENAI_KEY_FILE" "$CELLS_CODEX_TOKEN_FILE"; do
+        [ -e "$f" ] || continue
+        check "$(basename "$f") is private" "run: chmod 600 $f" bash -c '[ "$(stat -c %a "$1")" = 600 ]' _ "$f"
+    done
     echo "Dashboard"
     check "service $CELLS_UNIT-dash" "run ./install.sh, or: systemctl --user restart $CELLS_UNIT-dash" \
         systemctl --user is-active "$CELLS_UNIT-dash"
@@ -129,6 +161,10 @@ case "${1:-}" in
 up)
     name="${2:-}"; valid "$name"
     task="${3:-}"; [ -n "$task" ] || usage
+    runtime="$CELLS_RUNTIME"
+    if [ "${4:-}" = --runtime ]; then runtime="${5:-}"; fi
+    problem="$(runtime_problem "$runtime")"
+    [ -z "$problem" ] || { echo "$problem" >&2; exit 1; }
     if systemctl --user is-active --quiet "$CELLS_UNIT-agent-$name"; then echo "$name is already running" >&2; exit 1; fi
     if [ -e "$SCREENS/$name" ]; then echo "$name exists; stop it first with: cell down $name" >&2; exit 1; fi
     if [ "$(running_agents)" -ge "$CELLS_MAX" ]; then echo "$CELLS_MAX agents already running (CELLS_MAX)" >&2; exit 1; fi
@@ -153,11 +189,13 @@ up)
     xauth -q -f "$AUTH" extract - ":$n" | xauth -q -f "$cell/home/.Xauthority" merge -
 
     printf '%s\n' "$task" > "$cell/state/task.txt"
+    echo "$runtime" > "$cell/state/runtime"
     echo starting > "$cell/state/status"
 
-    systemd-run --user --quiet --collect --unit "$CELLS_UNIT-agent-$name" -p MemoryMax="$CELLS_MEMORY_MAX" \
+    systemd-run --user --quiet --collect --unit "$CELLS_UNIT-agent-$name" \
+        -p MemoryMax="$CELLS_MEMORY_MAX" -p MemoryHigh="$(memory_high)" -p TasksMax=1024 \
         "$CELLS_APP/bin/cell-agent-run" "$name"
-    echo "$name started on :$n"
+    echo "$name started on :$n ($runtime)"
     ;;
 say)
     name="${2:-}"; valid "$name"
@@ -203,7 +241,7 @@ ls)
         flags=""
         [ -e "$d/state/help.json" ] && flags="$flags needs-help"
         [ -e "$d/state/paused" ] && flags="$flags paused"
-        echo "$name :$(cat "$d/display") $(cat "$d/state/status")$flags"
+        echo "$name :$(cat "$d/display") $(cat "$d/state/runtime" 2>/dev/null || echo claude) $(cat "$d/state/status")$flags"
     done
     ;;
 history)
@@ -243,16 +281,23 @@ history)
     cat "$d/result.txt" 2>/dev/null
     ;;
 auth)
-    mkdir -p "$(dirname "$CELLS_TOKEN_FILE")"
-    chmod 700 "$(dirname "$CELLS_TOKEN_FILE")"
-    if [ -t 0 ]; then printf 'Paste the token from `claude setup-token` and press Enter: ' >&2; fi
-    IFS= read -rs token || true
+    which="${2:-claude}"
+    case "$which:${3:-}" in
+        claude:) file="$CELLS_TOKEN_FILE"; ask='Paste the token from `claude setup-token`' ;;
+        codex:) file="$CELLS_OPENAI_KEY_FILE"; ask="Paste an OpenAI API key (platform.openai.com/api-keys)" ;;
+        codex:--access-token) file="$CELLS_CODEX_TOKEN_FILE"; ask="Paste a Codex access token" ;;
+        *) usage ;;
+    esac
+    ( umask 077; mkdir -p "$CELLS_SECRETS" ); chmod 700 "$CELLS_SECRETS"
+    if [ -t 0 ]; then printf '%s and press Enter (input is hidden): ' "$ask" >&2; fi
+    IFS= read -rs secret || true
     echo >&2
-    token="$(printf '%s' "$token" | tr -d '[:space:]"')"
-    token="${token#CLAUDE_CODE_OAUTH_TOKEN=}"
-    [ -n "$token" ] || { echo "no token given" >&2; exit 1; }
-    ( umask 077; printf '%s\n' "$token" > "$CELLS_TOKEN_FILE" )
-    echo "saved to $CELLS_TOKEN_FILE"
+    secret="$(printf '%s' "$secret" | tr -d '[:space:]"')"
+    case "$secret" in [A-Z_]*=*) secret="${secret#*=}" ;; esac
+    [ -n "$secret" ] || { echo "nothing entered" >&2; exit 1; }
+    ( umask 077; printf '%s\n' "$secret" > "$file.tmp" && mv "$file.tmp" "$file" )
+    unset secret
+    echo "saved for $which agents (readable only by you, hidden from every cell)"
     ;;
 doctor)
     doctor

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installs cells for the current user. Safe to run again: it updates what is there and keeps your config.
 #
-#   ./install.sh [--with-chromium] [--with-knowledge] [--yes]
+#   ./install.sh [--with-codex] [--with-chromium] [--with-knowledge] [--yes]
 #
 # It checks the system packages, installs the Node pieces into $CELLS_HOME/opt (no global npm),
 # writes ~/.config/cells/config, links `cell` into ~/.local/bin, starts the dashboard as a systemd
@@ -9,12 +9,14 @@
 set -euo pipefail
 
 PLAYWRIGHT_MCP_VERSION=0.0.84
+CODEX_VERSION=0.167.0
 OPENCONTEXT_VERSION=0.2.2
 
 APP="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-WITH_CHROMIUM=0 WITH_KNOWLEDGE=0 YES=0
+WITH_CODEX=0 WITH_CHROMIUM=0 WITH_KNOWLEDGE=0 YES=0
 for arg in "$@"; do
     case "$arg" in
+        --with-codex) WITH_CODEX=1 ;;
         --with-chromium) WITH_CHROMIUM=1 ;;
         --with-knowledge) WITH_KNOWLEDGE=1 ;;
         --yes|-y) YES=1 ;;
@@ -69,6 +71,8 @@ if [ ! -f "$CELLS_CONFIG" ]; then
 # CELLS_HOME="$HOME/cells"          # state, history and the shared knowledge base
 # CELLS_MAX=20                      # agents working at once
 # CELLS_OWNER="Sam"                 # how agents address you
+# CELLS_RUNTIME=claude              # default runtime for new agents: claude or codex
+# CELLS_CODEX_MODEL=                # model for Codex agents; empty = Codex's default
 # CELLS_SCREEN_SIZE=1280x800        # each agent's screen
 # CELLS_MEMORY_MAX=8G               # memory cap per agent
 # CELLS_CHROME_PROFILE=             # copy this Chrome profile into each agent (keeps sign-ins); empty = fresh browser
@@ -92,6 +96,12 @@ fi
 in_config CELLS_CLAUDE || set_config CELLS_CLAUDE "$(readlink -f "$CELLS_CLAUDE")"
 in_config CELLS_NODE || set_config CELLS_NODE "$(readlink -f "$(command -v node)")"
 ok "Claude Code $("$CELLS_CLAUDE" --version 2>/dev/null | head -1)"
+
+if [ "$WITH_CODEX" = 1 ]; then
+    npm_into "$CELLS_HOME/opt/codex" "@openai/codex@$CODEX_VERSION"
+    set_config CELLS_CODEX "$CELLS_HOME/opt/codex/node_modules/.bin/codex"
+    ok "Codex $CODEX_VERSION"
+fi
 
 npm_into "$CELLS_HOME/opt/playwright-mcp" "@playwright/mcp@$PLAYWRIGHT_MCP_VERSION"
 ok "Playwright MCP $PLAYWRIGHT_MCP_VERSION"
@@ -146,7 +156,8 @@ bold "Check"
 
 bold "Next"
 [ -s "$CELLS_TOKEN_FILE" ] || [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ] || \
-    echo "  1. Sign in:  claude setup-token   then paste the token into:  cell auth"
+    echo "  1. Sign in:  claude setup-token   then paste the token into:  cell auth claude"
+[ "$WITH_CODEX" = 1 ] && echo "     Codex:    cell auth codex   (an OpenAI API key; or cell auth codex --access-token)"
 echo "  2. Open the dashboard from your laptop:"
 echo "       ssh -N -L 6080:$CELLS_HOME/run/dash.sock $(whoami)@$(hostname -f 2>/dev/null || hostname)"
 echo "     then visit http://localhost:6080"

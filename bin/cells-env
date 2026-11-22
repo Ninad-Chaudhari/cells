@@ -17,10 +17,16 @@ CELLS_MEMORY_MAX="${CELLS_MEMORY_MAX:-8G}"
 CELLS_CHROME_PROFILE="${CELLS_CHROME_PROFILE-}"
 CELLS_CHROME_BIN="${CELLS_CHROME_BIN:-$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || command -v chromium-browser || true)}"
 CELLS_NODE="${CELLS_NODE:-$(command -v node || true)}"
-CELLS_CLAUDE="${CELLS_CLAUDE:-$(command -v claude || true)}"
+CELLS_CLAUDE="${CELLS_CLAUDE:-$(command -v claude || ls "$CELLS_HOME/opt/claude-code/node_modules/.bin/claude" 2>/dev/null || true)}"
+CELLS_CODEX="${CELLS_CODEX:-$(ls "$CELLS_HOME/opt/codex/node_modules/.bin/codex" 2>/dev/null || command -v codex || true)}"
+CELLS_CODEX_MODEL="${CELLS_CODEX_MODEL-}"
+CELLS_RUNTIME="${CELLS_RUNTIME:-claude}"
 CELLS_PLAYWRIGHT_MCP="${CELLS_PLAYWRIGHT_MCP:-$CELLS_HOME/opt/playwright-mcp/node_modules/@playwright/mcp/cli.js}"
 CELLS_OPENCONTEXT="${CELLS_OPENCONTEXT:-$CELLS_HOME/opt/opencontext/node_modules/@aicontextlab/cli/bin/oc.js}"
-CELLS_TOKEN_FILE="${CELLS_TOKEN_FILE:-$CELLS_HOME/secrets/claude-token}"
+CELLS_SECRETS="${CELLS_SECRETS:-$CELLS_HOME/secrets}"
+CELLS_TOKEN_FILE="${CELLS_TOKEN_FILE:-$CELLS_SECRETS/claude-token}"
+CELLS_OPENAI_KEY_FILE="${CELLS_OPENAI_KEY_FILE:-$CELLS_SECRETS/openai-api-key}"
+CELLS_CODEX_TOKEN_FILE="${CELLS_CODEX_TOKEN_FILE:-$CELLS_SECRETS/codex-access-token}"
 CELLS_WM="${CELLS_WM:-$(command -v xfwm4 || command -v openbox || command -v fluxbox || true)}"
 CELLS_DASH_TCP="${CELLS_DASH_TCP-}"
 CELLS_UNIT="${CELLS_UNIT:-cells}"
@@ -33,4 +39,5 @@ AUTH="$RUN/xauth"
 
 export CELLS_APP CELLS_CONFIG CELLS_HOME CELLS_LOCAL CELLS_NAME CELLS_OWNER CELLS_MAX CELLS_DISPLAYS \
     CELLS_SCREEN_SIZE CELLS_MEMORY_MAX CELLS_CHROME_PROFILE CELLS_CHROME_BIN CELLS_NODE CELLS_CLAUDE \
-    CELLS_PLAYWRIGHT_MCP CELLS_OPENCONTEXT CELLS_TOKEN_FILE CELLS_WM CELLS_DASH_TCP CELLS_UNIT
+    CELLS_PLAYWRIGHT_MCP CELLS_OPENCONTEXT CELLS_WM CELLS_DASH_TCP CELLS_UNIT \
+    CELLS_CODEX CELLS_CODEX_MODEL CELLS_RUNTIME CELLS_SECRETS CELLS_TOKEN_FILE CELLS_OPENAI_KEY_FILE CELLS_CODEX_TOKEN_FILE
