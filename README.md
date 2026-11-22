@@ -36,9 +36,11 @@ Computer-use agents need a computer, and running more than one on the same deskt
 
 | Live screens | One agent: screen and chat |
 |---|---|
-| ![Grid of agent screens](docs/media/grid.png) | ![An agent's screen beside its chat](docs/media/agent.png) |
+| ![Grid of agent screens](docs/media/grid.jpg) | ![An agent's screen beside its chat](docs/media/agent.jpg) |
 | **Launch from the browser** | **Metrics** |
 | ![Launcher](docs/media/launch.png) | ![Per-agent CPU, memory and disk](docs/media/metrics.png) |
+| **History** | **Light and dark** |
+| ![Archived runs with chat, result and files](docs/media/history.png) | ![Metrics in the light appearance](docs/media/light.png) |
 
 ## Quick start
 
