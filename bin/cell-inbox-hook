@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""PostToolUse hook inside a cell: hands queued operator messages to the agent mid-task."""
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.stdin.read()
+state = Path(os.environ.get("CELL_STATE", ""))
+inbox = state / "inbox"
+delivered = inbox / "delivered"
+owner = os.environ.get("CELLS_OWNER", "your operator")
+delivered.mkdir(parents=True, exist_ok=True)
+
+parts = []
+for p in sorted(inbox.glob("*.json")):
+    target = delivered / p.name
+    try:
+        os.rename(p, target)
+        data = json.loads(target.read_text())
+    except (OSError, ValueError):
+        continue
+    text = str(data.get("text", "")).strip()
+    images = [str(inbox / i) for i in data.get("images", []) if isinstance(i, str)]
+    if images:
+        text += ("\n" if text else "") + "Attached image(s), open them with the Read tool: " + ", ".join(images)
+    if text:
+        parts.append(text)
+
+if parts:
+    body = "\n\n".join(parts)
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PostToolUse",
+        "additionalContext": f"New message from {owner}, sent while you were working:\n{body}\n"
+                             "Acknowledge it briefly and adjust what you are doing.",
+    }}))

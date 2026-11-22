@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Inside a cell: ask the operator for help and wait for their answer.
+set -euo pipefail
+
+state="${CELL_STATE:?}"
+owner="${CELLS_OWNER:-your operator}"
+req="$state/help.json"
+ans="$state/help-answer"
+wait_s="${NEED_HELP_WAIT:-110}"
+
+if [ $# -gt 0 ]; then
+    rm -f "$ans"
+    python3 -c 'import json, sys, time; json.dump({"message": sys.argv[1], "at": int(time.time())}, open(sys.argv[2], "w"))' "$*" "$req"
+elif [ ! -e "$req" ] && [ ! -e "$ans" ]; then
+    echo 'usage: need-help "what you need"' >&2
+    exit 2
+fi
+
+echo "Asked $owner for help; waiting."
+end=$((SECONDS + wait_s))
+while [ "$SECONDS" -lt "$end" ]; do
+    if [ -e "$ans" ]; then
+        echo "$owner is done helping. Note: $(cat "$ans")"
+        echo "Check the screen again before you continue; it may have changed."
+        rm -f "$ans"
+        exit 0
+    fi
+    sleep 2
+done
+echo "No answer yet. The request is still open; run need-help with no arguments to keep waiting."
