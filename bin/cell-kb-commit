@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Commits whatever an agent changed in the shared knowledge base, under the agent's name.
+set -uo pipefail
+. "$(dirname "$(readlink -f "$0")")/cells-env"
+
+name="$1"
+state="$SCREENS/$name/state"
+
+[ -d "$KNOWLEDGE/.git" ] || exit 0
+(
+    flock 9
+    git -C "$KNOWLEDGE" add -A
+    if ! git -C "$KNOWLEDGE" diff --cached --quiet; then
+        git -C "$KNOWLEDGE" -c user.name="cell $name" -c user.email="cells@localhost" \
+            commit -q -m "$(head -c 72 "$state/task.txt" | tr '\n' ' ')"
+        git -C "$KNOWLEDGE" show --stat --format='%h %s' HEAD >> "$state/knowledge-commit.txt"
+    fi
+) 9>"$RUN/knowledge.lock"
