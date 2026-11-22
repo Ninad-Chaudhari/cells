@@ -1,0 +1,36 @@
+# shellcheck shell=bash
+# Sourced by every cells script: loads the config and sets defaults.
+
+CELLS_APP="${CELLS_APP:-$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)}"
+CELLS_CONFIG="${CELLS_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/cells/config}"
+# shellcheck disable=SC1090
+[ -f "$CELLS_CONFIG" ] && . "$CELLS_CONFIG"
+
+CELLS_HOME="${CELLS_HOME:-$HOME/cells}"
+CELLS_LOCAL="${CELLS_LOCAL-/var/tmp/cells-$USER}"
+CELLS_NAME="${CELLS_NAME:-$(hostname -s 2>/dev/null || echo cells)}"
+CELLS_OWNER="${CELLS_OWNER:-the operator}"
+CELLS_MAX="${CELLS_MAX:-20}"
+CELLS_DISPLAYS="${CELLS_DISPLAYS:-201-299}"
+CELLS_SCREEN_SIZE="${CELLS_SCREEN_SIZE:-1280x800}"
+CELLS_MEMORY_MAX="${CELLS_MEMORY_MAX:-8G}"
+CELLS_CHROME_PROFILE="${CELLS_CHROME_PROFILE-}"
+CELLS_CHROME_BIN="${CELLS_CHROME_BIN:-$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || command -v chromium-browser || true)}"
+CELLS_NODE="${CELLS_NODE:-$(command -v node || true)}"
+CELLS_CLAUDE="${CELLS_CLAUDE:-$(command -v claude || true)}"
+CELLS_PLAYWRIGHT_MCP="${CELLS_PLAYWRIGHT_MCP:-$CELLS_HOME/opt/playwright-mcp/node_modules/@playwright/mcp/cli.js}"
+CELLS_OPENCONTEXT="${CELLS_OPENCONTEXT:-$CELLS_HOME/opt/opencontext/node_modules/@aicontextlab/cli/bin/oc.js}"
+CELLS_TOKEN_FILE="${CELLS_TOKEN_FILE:-$CELLS_HOME/secrets/claude-token}"
+CELLS_WM="${CELLS_WM:-$(command -v xfwm4 || command -v openbox || command -v fluxbox || true)}"
+CELLS_DASH_TCP="${CELLS_DASH_TCP-}"
+CELLS_UNIT="${CELLS_UNIT:-cells}"
+
+SCREENS="$CELLS_HOME/screens"
+RUN="$CELLS_HOME/run"
+HISTORY="$CELLS_HOME/history"
+KNOWLEDGE="$CELLS_HOME/knowledge"
+AUTH="$RUN/xauth"
+
+export CELLS_APP CELLS_CONFIG CELLS_HOME CELLS_LOCAL CELLS_NAME CELLS_OWNER CELLS_MAX CELLS_DISPLAYS \
+    CELLS_SCREEN_SIZE CELLS_MEMORY_MAX CELLS_CHROME_PROFILE CELLS_CHROME_BIN CELLS_NODE CELLS_CLAUDE \
+    CELLS_PLAYWRIGHT_MCP CELLS_OPENCONTEXT CELLS_TOKEN_FILE CELLS_WM CELLS_DASH_TCP CELLS_UNIT

@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Private X screens (Xvfb) that agents and apps run on.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/cells-env"
+
+mkdir -p "$SCREENS" "$RUN"
+chmod 700 "$RUN"
+
+usage() {
+    echo "usage: cell-screen up NAME [WxH] | down NAME | ls | run NAME -- CMD..." >&2
+    exit 2
+}
+
+valid() {
+    [[ "${1:-}" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || { echo "name: lowercase letters, digits, dashes" >&2; exit 2; }
+}
+
+free_display() {
+    local n first="${CELLS_DISPLAYS%-*}" last="${CELLS_DISPLAYS#*-}"
+    for n in $(seq "$first" "$last"); do
+        [ -e "/tmp/.X11-unix/X$n" ] || [ -e "/tmp/.X$n-lock" ] || { echo "$n"; return; }
+    done
+    echo "no free display in :$first-:$last" >&2
+    exit 1
+}
+
+display_of() {
+    local f="$SCREENS/$1/display"
+    [ -e "$f" ] || { echo "no screen named $1" >&2; exit 1; }
+    echo ":$(cat "$f")"
+}
+
+case "${1:-}" in
+up)
+    name="${2:-}"; valid "$name"; size="${3:-$CELLS_SCREEN_SIZE}"
+    dir="$SCREENS/$name"
+    if [ -e "$dir/display" ]; then echo "$name already up on :$(cat "$dir/display")"; exit 0; fi
+    exec 8>"$RUN/screen.lock"
+    flock 8
+    n="$(free_display)"
+    mkdir -p "$dir"
+    touch "$AUTH"; chmod 600 "$AUTH"
+    xauth -q -f "$AUTH" add ":$n" . "$(mcookie)"
+    systemd-run --user --quiet --collect --unit "$CELLS_UNIT-screen-$name" \
+        --setenv=XAUTHORITY="$AUTH" --setenv=DISPLAY=":$n" --setenv=CELLS_WM="$CELLS_WM" \
+        "$CELLS_APP/bin/cell-screen-run" "$n" "$size"
+    for _ in $(seq 100); do [ -e "/tmp/.X11-unix/X$n" ] && break; sleep 0.1; done
+    if [ ! -e "/tmp/.X11-unix/X$n" ]; then
+        systemctl --user stop "$CELLS_UNIT-screen-$name" 2>/dev/null || true
+        xauth -q -f "$AUTH" remove ":$n" || true
+        rmdir "$dir" 2>/dev/null || true
+        echo "screen :$n did not start for $name" >&2
+        exit 1
+    fi
+    flock -u 8
+    echo "$n" > "$dir/display"
+    date +%s > "$dir/started"
+    echo "$name up on :$n"
+    ;;
+down)
+    name="${2:-}"; valid "$name"
+    dir="$SCREENS/$name"
+    systemctl --user stop "$CELLS_UNIT-screen-$name" 2>/dev/null || true
+    for unit in $(systemctl --user list-units --plain --no-legend "$CELLS_UNIT-app-$name.*" | awk '{print $1}'); do
+        systemctl --user stop "$unit" || true
+    done
+    if [ -e "$dir/display" ]; then xauth -q -f "$AUTH" remove ":$(cat "$dir/display")" || true; fi
+    rm -rf "$dir"
+    echo "$name down"
+    ;;
+ls)
+    for d in "$SCREENS"/*/; do
+        [ -e "$d/display" ] || continue
+        name="$(basename "$d")"
+        echo "$name :$(cat "$d/display") $(systemctl --user is-active "$CELLS_UNIT-screen-$name" || true)"
+    done
+    ;;
+run)
+    name="${2:-}"; valid "$name"
+    [ "${3:-}" = "--" ] || usage
+    shift 3
+    [ $# -gt 0 ] || usage
+    disp="$(display_of "$name")"
+    systemd-run --user --quiet --collect --unit "$CELLS_UNIT-app-$name.$(date +%s%N)" \
+        --setenv=XAUTHORITY="$AUTH" --setenv=DISPLAY="$disp" "$@"
+    ;;
+*)
+    usage
+    ;;
+esac

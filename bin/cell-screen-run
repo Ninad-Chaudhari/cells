@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Runs one Xvfb screen (and a window manager on it) for the lifetime of its systemd unit.
+set -euo pipefail
+
+n="$1"
+size="$2"
+
+Xvfb ":$n" -screen 0 "${size}x24" -nolisten tcp -auth "$XAUTHORITY" &
+xvfb=$!
+
+for _ in $(seq 50); do [ -e "/tmp/.X11-unix/X$n" ] && break; sleep 0.1; done
+
+case "$(basename "${CELLS_WM:-}")" in
+    xfwm4) xfwm4 --compositor=off & ;;
+    "") ;;
+    *) "$CELLS_WM" & ;;
+esac
+
+wait "$xvfb"
