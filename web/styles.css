@@ -316,7 +316,7 @@ body.v-agent main { padding-bottom: 16px; }
 .prose blockquote { margin: 0 0 .9em; padding: 2px 0 2px 12px; border-left: 3px solid var(--fill); color: var(--muted); }
 .prose hr { border: 0; border-top: .5px solid var(--sep-2); margin: 1.2em 0; }
 .prose table { border-collapse: collapse; margin: 0 0 1em; font-size: .93em; display: block; overflow-x: auto; }
-.prose th, .prose td { border-bottom: .5px solid var(--sep-2); padding: 6px 14px 6px 0; text-align: left; }
+.prose th, .prose td { border-bottom: .5px solid var(--sep-2); padding: 6px 14px 6px 0; text-align: left; min-width: 10ch; vertical-align: top; }
 .prose th { font-weight: 600; color: var(--muted); }
 .prose img { max-width: 100%; border-radius: 10px; }
 
