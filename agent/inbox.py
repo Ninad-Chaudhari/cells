@@ -1,9 +1,15 @@
-"""A cell's inbox. Each message is a JSON file ({text, images, at}); its images sit in inbox/files.
-A message is claimed by renaming it into inbox/delivered, so it is handed over exactly once, either by the
-supervisor (a new turn) or by the in-sandbox hook (mid-task)."""
+"""A cell's inbox, written only by the host. Each message is a JSON file ({text, images, at}); its images sit
+in inbox/files. A message is handed over exactly once: mid-task by the in-sandbox hook, which can only read the
+inbox and lists what it handed over in state/agent/delivered, or at a new turn by the supervisor. Either way
+the supervisor then files it away in inbox/delivered."""
 import json
 import os
+import re
 from typing import NamedTuple
+
+from . import untrusted
+
+MESSAGE_RE = re.compile(r"^[0-9]{1,24}\.json$")
 
 
 class Message(NamedTuple):
@@ -13,18 +19,35 @@ class Message(NamedTuple):
 
 
 class Inbox:
-    def __init__(self, path):
-        self.path = path
-        self.delivered = path / "delivered"
+    def __init__(self, state):
+        self.path = state / "inbox"
+        self.delivered = self.path / "delivered"
+        self.receipts = state / "agent" / "delivered"
         self.delivered.mkdir(parents=True, exist_ok=True)
-        (path / "files").mkdir(parents=True, exist_ok=True)
+        (self.path / "files").mkdir(parents=True, exist_ok=True)
+
+    def handed_by_hook(self):
+        return {n for n in (untrusted.read(self.receipts, 1 << 20) or "").split() if MESSAGE_RE.match(n)}
+
+    def waiting(self, handed):
+        """Messages still in the inbox that the hook did (handed=True) or did not hand over."""
+        names = self.handed_by_hook()
+        return [p for p in sorted(self.path.glob("*.json")) if (p.name in names) == handed]
 
     def has_pending(self):
-        return any(self.path.glob("*.json"))
+        return bool(self.waiting(handed=False))
 
     def claim(self):
+        """Messages for a new turn."""
+        return self.file_away(self.waiting(handed=False))
+
+    def take_handed(self):
+        """Messages the hook handed over mid-task, once each."""
+        return self.file_away(self.waiting(handed=True))
+
+    def file_away(self, paths):
         out = []
-        for p in sorted(self.path.glob("*.json")):
+        for p in paths:
             target = self.delivered / p.name
             try:
                 os.rename(p, target)
@@ -34,9 +57,6 @@ class Inbox:
             if msg.text or msg.images:
                 out.append(msg)
         return out
-
-    def delivered_ids(self):
-        return {p.name for p in self.delivered.glob("*.json")}
 
     def read(self, path):
         try:

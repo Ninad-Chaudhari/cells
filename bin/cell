@@ -232,7 +232,7 @@ ls)
         [ -e "$d/state/status" ] || continue
         name="$(basename "$d")"
         flags=""
-        [ -e "$d/state/help.json" ] && flags="$flags needs-help"
+        [ -f "$d/state/agent/help.json" ] && [ ! -L "$d/state/agent/help.json" ] && flags="$flags needs-help"
         [ -e "$d/state/paused" ] && flags="$flags paused"
         echo "$name :$(cat "$d/display") $(cat "$d/state/runtime" 2>/dev/null || echo claude) $(cat "$d/state/status")$flags"
     done

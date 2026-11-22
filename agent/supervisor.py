@@ -20,11 +20,10 @@ DRIVERS = {"claude": claude.Driver, "codex": codex.Driver}
 class Supervisor:
     def __init__(self, name, sandbox):
         self.cell = Cell.load(name)
-        self.inbox = Inbox(self.cell.state / "inbox")
+        self.inbox = Inbox(self.cell.state)
         self.log = EventLog(self.cell.state / "stream.jsonl")
         self.driver = DRIVERS[self.cell.runtime](self.cell, self.inbox)
         self.sandbox = [shutil.which(sandbox[0]) or sandbox[0], *sandbox[1:]]
-        self.logged = self.inbox.delivered_ids()
 
     def status(self, value):
         (self.cell.state / "status").write_text(value + "\n")
@@ -36,9 +35,8 @@ class Supervisor:
     def note_hook_deliveries(self):
         """Log messages the hook handed over mid-task, so they show up in the chat."""
         while True:
-            for msg_id in sorted(self.inbox.delivered_ids() - self.logged):
-                self.logged.add(msg_id)
-                self.log.message(self.inbox.read(self.inbox.delivered / msg_id), "during-task")
+            for msg in self.inbox.take_handed():
+                self.log.message(msg, "during-task")
             time.sleep(1)
 
     def next_turn(self):
@@ -49,7 +47,6 @@ class Supervisor:
             time.sleep(1)
         msgs = self.inbox.claim()
         for m in msgs:
-            self.logged.add(m.id)
             self.log.message(m, "new-turn")
         if not msgs:
             return self.next_turn()

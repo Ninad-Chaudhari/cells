@@ -4,6 +4,8 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 
+from agent import untrusted
+
 from .config import NAME_RE, SCREENS, read
 
 X11 = Path("/tmp/.X11-unix")
@@ -78,10 +80,10 @@ def list_cells():
             continue
         d = f.parent
         state = d / "state"
-        help_req = None
-        if (state / "help.json").exists():
+        help_req = untrusted.read(state / "agent" / "help.json")
+        if help_req is not None:
             try:
-                help_req = json.loads((state / "help.json").read_text())
+                help_req = json.loads(help_req)
             except ValueError:
                 help_req = {"message": "(unreadable help request)", "at": None}
         started = read(state / "started") or read(d / "started")

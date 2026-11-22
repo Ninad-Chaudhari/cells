@@ -27,6 +27,7 @@ def make_cell(name, display=201, status="running", task="Do the thing"):
     d = config.SCREENS / name
     state = d / "state"
     (state / "inbox").mkdir(parents=True)
+    (state / "agent").mkdir()
     (d / "display").write_text(str(display))
     (state / "status").write_text(status)
     (state / "task.txt").write_text(task)

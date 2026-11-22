@@ -1,13 +1,16 @@
 """Controlling agents: start, stop, pause, resume and answer a help request."""
+import json
 import os
 import signal
 import subprocess
 import threading
 from pathlib import Path
 
+from agent import untrusted
+
 from . import inbox, runtimes
 from .cells import STOPPING, cell_dir
-from .config import CELL, NAME_RE, UNIT, read
+from .config import CELL, HELP_ID_RE, NAME_RE, UNIT, read
 
 AGENT_PROCESSES = {"claude", "codex"}
 
@@ -85,8 +88,14 @@ def resolve_help(name, note):
     if not d:
         return False
     state = d / "state"
-    (state / "help-answer").write_text(note.strip() or "done")
-    (state / "help.json").unlink(missing_ok=True)
+    request = state / "agent" / "help.json"
+    try:
+        request_id = str(json.loads(untrusted.read(request) or "{}").get("id", ""))
+    except (ValueError, AttributeError):
+        request_id = ""
+    if HELP_ID_RE.match(request_id):
+        (state / f"help-answer-{request_id}").write_text(note.strip() or "done")
+    request.unlink(missing_ok=True)
     if (state / "paused").exists():
         set_paused(name, False)
     return True

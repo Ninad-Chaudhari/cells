@@ -127,6 +127,7 @@ Agents run with their runtime's permission prompts off, so the sandbox is what k
 
 - The host filesystem is read-only. Home directories, `~/cells` (other agents' chats, your token, the dashboard socket) and every other cell's home are hidden; a cell sees only its own home.
 - Each cell has its own PID namespace and X authority cookie, so it can't signal other processes or open other cells' screens.
+- A cell's own state (status, chat log, inbox) is read-only inside its sandbox. The one folder it can write, for help requests and receipts for messages, the host only reads as plain data and never writes to.
 - A cell edits only its own copy of the knowledge base. The git repository lives outside every sandbox, so nothing an agent writes is ever read as git settings or hooks.
 - Cells share the host's network. Anything listening on `localhost` is reachable, including the dashboard if you turn on `CELLS_DASH_TCP`.
 - An X server that trusts your whole user (`xhost +SI:localuser:...`, common with xrdp) is reachable too. Run Cells under a dedicated user if that matters.

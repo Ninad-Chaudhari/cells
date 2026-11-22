@@ -56,7 +56,8 @@ case "$chrome_real" in
 esac
 
 args+=(
-    --bind "$state" "$inner/state"
+    --ro-bind "$state" "$inner/state"
+    --bind "$state/agent" "$inner/state/agent"
     --bind "$cell/knowledge" "$inner/knowledge"
     --ro-bind "$CELLS_APP/bin/need-help" "$inner/bin/need-help"
     --ro-bind "$CELLS_APP/bin/cell-chrome" "$inner/bin/cell-chrome"
@@ -66,5 +67,5 @@ args+=(
     --chdir "$HOME"
 )
 
-mkdir -p "$cell/home/.cell/config"
+mkdir -p "$cell/home/.cell/config" "$state/agent"
 exec python3 "$CELLS_APP/bin/cell-agent-io" "$name" -- bwrap "${args[@]}"

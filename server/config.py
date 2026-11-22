@@ -26,6 +26,7 @@ TCP = os.environ.get("CELLS_DASH_TCP", "")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
 KEYS_RE = re.compile(r"^[A-Za-z0-9_+]{1,40}$")
 HASH_RE = re.compile(r"^[0-9a-f]{4,40}$")
+HELP_ID_RE = re.compile(r"^[0-9]{1,24}$")
 ARCHIVE_RE = re.compile(r"^\d{8}-\d{6}-[a-z0-9][a-z0-9-]{0,30}$")
 FILE_RE = re.compile(r"^files/[0-9]+-[0-9]+\.(png|jpe?g|gif|webp)$")
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}

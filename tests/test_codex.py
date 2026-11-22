@@ -68,7 +68,7 @@ class CodexCredentialTest(unittest.TestCase):
         self.secrets.mkdir(mode=0o700)
         cell = Cell.load("coder")
         cell.home.mkdir(parents=True)
-        self.driver = Driver(cell, Inbox(self.state / "inbox"))
+        self.driver = Driver(cell, Inbox(self.state))
 
     def save_key(self, mode):
         key = self.secrets / "openai-api-key"
