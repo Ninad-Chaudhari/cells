@@ -80,7 +80,7 @@ function tick() {
   document.addEventListener("keydown", onKey);
   document.addEventListener("visibilitychange", () => {
     Focus.stream();
-    if (!document.hidden) { refreshScreens(); refreshShots(); }
+    if (!document.hidden) { refreshScreens(); refreshShots(); History.load(); Knowledge.load(); }
   });
   window.addEventListener("hashchange", render);
 
@@ -91,7 +91,7 @@ function tick() {
   setInterval(refreshScreens, 2000);
   setInterval(refreshShots, 1500);
   setInterval(() => Focus.refreshLog(), 1500);
-  setInterval(() => { History.load(); Knowledge.load(); }, 10000);
+  setInterval(() => { if (!document.hidden) { History.load(); Knowledge.load(); } }, 10000);
   setInterval(() => { if (["agents", "agent", "metrics"].includes(state.route.view)) Metrics.load(); }, 3000);
   setInterval(tick, 1000);
 })();
